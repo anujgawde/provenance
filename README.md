@@ -30,7 +30,3 @@ apps/
 packages/
   shared/  cross-cutting types + socket protocol
 ```
-
-## Build plan
-
-See [provenance-spec.md](./provenance-spec.md) §9 for the seven bits.
