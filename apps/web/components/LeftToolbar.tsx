@@ -1,6 +1,8 @@
 'use client';
 
-import { useMemo } from 'react';
+import { forwardRef, useMemo, useRef, useState } from 'react';
+import type { NodeKind } from '@provenance/shared';
+import { AddNodePopover } from './AddNodePopover';
 import {
   ChatIcon,
   CubeIcon,
@@ -28,33 +30,38 @@ export function LeftToolbar({
   mode,
   setMode,
   userInitial = 'A',
+  userColor = '#7E8794',
+  onAddNode,
+  theme = 'light',
 }: {
   mode: ToolbarMode;
   setMode: (m: ToolbarMode) => void;
   userInitial?: string;
+  userColor?: string;
+  onAddNode?: (kind: NodeKind) => void;
+  theme?: 'light' | 'dark';
 }) {
-  const bottomItems = useMemo(() => {
-    if (mode === 'select')
-      return [
-        { key: 'add', icon: <PlusIcon width={18} height={18} />, label: 'Add' },
-        { key: 'tools', icon: <WrenchIcon width={18} height={18} />, label: 'Tools' },
-        { key: 'route', icon: <RouteIcon width={18} height={18} />, label: 'Route' },
-        { key: 'history', icon: <HistoryIcon width={18} height={18} />, label: 'History' },
-      ];
-    if (mode === 'draw')
-      return [
-        { key: 'pencil', icon: <PencilIcon width={18} height={18} />, label: 'Pencil' },
-        { key: 'eraser', icon: <EraserIcon width={18} height={18} />, label: 'Eraser' },
-        { key: 'cube', icon: <CubeIcon width={18} height={18} />, label: '3D' },
-        { key: 'text', icon: <TextIcon width={18} height={18} />, label: 'Text' },
-        { key: 'frame', icon: <FrameIcon width={18} height={18} />, label: 'Frame' },
-      ];
-    return [
+  const [addOpen, setAddOpen] = useState(false);
+  const addBtnRef = useRef<HTMLButtonElement | null>(null);
+
+  const drawItems = useMemo(
+    () => [
+      { key: 'pencil', icon: <PencilIcon width={18} height={18} />, label: 'Pencil' },
+      { key: 'eraser', icon: <EraserIcon width={18} height={18} />, label: 'Eraser' },
+      { key: 'cube', icon: <CubeIcon width={18} height={18} />, label: '3D' },
+      { key: 'text', icon: <TextIcon width={18} height={18} />, label: 'Text' },
+      { key: 'frame', icon: <FrameIcon width={18} height={18} />, label: 'Frame' },
+    ],
+    [],
+  );
+  const viewItems = useMemo(
+    () => [
       { key: 'comment', icon: <ChatIcon width={18} height={18} />, label: 'Comment' },
       { key: 'sticker', icon: <StickerIcon width={18} height={18} />, label: 'Sticker' },
       { key: 'hide', icon: <EyeOffIcon width={18} height={18} />, label: 'Hide' },
-    ];
-  }, [mode]);
+    ],
+    [],
+  );
 
   return (
     <div
@@ -73,34 +80,58 @@ export function LeftToolbar({
       <Pill>
         <ToolButton
           active={mode === 'select'}
-          onClick={() => setMode('select')}
+          onClick={() => {
+            setMode('select');
+            setAddOpen(false);
+          }}
           title="Select"
           icon={<XLogoIcon width={18} height={18} />}
         />
         <ToolButton
           active={mode === 'draw'}
-          onClick={() => setMode('draw')}
+          onClick={() => {
+            setMode('draw');
+            setAddOpen(false);
+          }}
           title="Draw"
           icon={<ScribbleIcon width={18} height={18} />}
         />
         <ToolButton
           active={mode === 'view'}
-          onClick={() => setMode('view')}
+          onClick={() => {
+            setMode('view');
+            setAddOpen(false);
+          }}
           title="View"
           icon={<EyeIcon width={18} height={18} />}
         />
       </Pill>
       <Pill>
-        {bottomItems.map((it) => (
-          <ToolButton key={it.key} title={it.label} icon={it.icon} />
-        ))}
+        {mode === 'select' && (
+          <>
+            <ToolButton
+              ref={addBtnRef}
+              active={addOpen}
+              onClick={() => setAddOpen((o) => !o)}
+              title="Add node"
+              icon={<PlusIcon width={18} height={18} />}
+            />
+            <ToolButton title="Tools" icon={<WrenchIcon width={18} height={18} />} />
+            <ToolButton title="Route" icon={<RouteIcon width={18} height={18} />} />
+            <ToolButton title="History" icon={<HistoryIcon width={18} height={18} />} />
+          </>
+        )}
+        {mode === 'draw' &&
+          drawItems.map((it) => <ToolButton key={it.key} title={it.label} icon={it.icon} />)}
+        {mode === 'view' &&
+          viewItems.map((it) => <ToolButton key={it.key} title={it.label} icon={it.icon} />)}
         <div
           aria-hidden
           style={{
             width: 32,
             height: 32,
             borderRadius: 999,
-            background: '#7E8794',
+            background: userColor,
             color: '#fff',
             fontSize: 12,
             fontWeight: 700,
@@ -113,6 +144,13 @@ export function LeftToolbar({
           {userInitial}
         </div>
       </Pill>
+      <AddNodePopover
+        open={addOpen && mode === 'select'}
+        onClose={() => setAddOpen(false)}
+        onPick={(kind) => onAddNode?.(kind)}
+        anchorRef={addBtnRef}
+        theme={theme}
+      />
     </div>
   );
 }
@@ -136,19 +174,18 @@ function Pill({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ToolButton({
-  icon,
-  active,
-  onClick,
-  title,
-}: {
-  icon: React.ReactNode;
-  active?: boolean;
-  onClick?: () => void;
-  title: string;
-}) {
+const ToolButton = forwardRef<
+  HTMLButtonElement,
+  {
+    icon: React.ReactNode;
+    active?: boolean;
+    onClick?: () => void;
+    title: string;
+  }
+>(function ToolButton({ icon, active, onClick, title }, ref) {
   return (
     <button
+      ref={ref}
       type="button"
       onClick={onClick}
       title={title}
@@ -166,7 +203,8 @@ function ToolButton({
         transition: 'background 120ms ease, color 120ms ease',
       }}
       onMouseEnter={(e) => {
-        if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'rgba(15,18,30,0.05)';
+        if (!active)
+          (e.currentTarget as HTMLButtonElement).style.background = 'rgba(15,18,30,0.05)';
       }}
       onMouseLeave={(e) => {
         if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
@@ -175,4 +213,4 @@ function ToolButton({
       {icon}
     </button>
   );
-}
+});
