@@ -18,6 +18,7 @@ import type {
   SessionState,
   Workflow,
 } from '@provenance/shared';
+import { CaptureService } from '../capture/capture.service';
 
 const room = (projectId: string) => `project:${projectId}`;
 
@@ -38,7 +39,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   private readonly projects = new Map<string, ProjectState>();
   private readonly socketProject = new Map<string, { projectId: string; userId: string }>();
 
-  constructor(_config: ConfigService) {}
+  constructor(_config: ConfigService, private readonly capture: CaptureService) {}
 
   private getProject(projectId: string): ProjectState {
     let p = this.projects.get(projectId);
@@ -120,6 +121,11 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const meta = this.socketProject.get(client.id);
     if (!meta) return;
     const project = this.getProject(meta.projectId);
+    try {
+      this.capture.capture(meta.projectId, project.workflow, op);
+    } catch (err) {
+      this.logger.warn(`capture failed for ${op.type}: ${(err as Error).message}`);
+    }
     this.applyOp(project.workflow, op);
     project.seq += 1;
     const stamped = { ...op, seq: project.seq } as Operation & { seq: number };
