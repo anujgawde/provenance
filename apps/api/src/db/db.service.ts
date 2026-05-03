@@ -46,5 +46,14 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
       CREATE INDEX IF NOT EXISTS idx_lineage_project_created
         ON lineage_entries (project_id, created_at);
     `);
+
+    // Bit 5: full post-op workflow snapshot for output-node generations,
+    // so graph-diff can compare any two generations.
+    const cols = this._db
+      .prepare(`PRAGMA table_info(lineage_entries)`)
+      .all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === 'workflow_snapshot')) {
+      this._db.exec(`ALTER TABLE lineage_entries ADD COLUMN workflow_snapshot TEXT`);
+    }
   }
 }

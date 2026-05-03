@@ -49,9 +49,7 @@ export function NodeCard({
         />
       )}
       <Handle type="target" position={Position.Left} style={portStyle} />
-      <Handle type="target" position={Position.Top} style={portStyle} />
       <Handle type="source" position={Position.Right} style={portStyle} />
-      <Handle type="source" position={Position.Bottom} style={portStyle} />
       <div style={{ padding: 14 }}>{children}</div>
       <div
         style={{

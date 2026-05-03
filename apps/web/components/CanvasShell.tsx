@@ -36,6 +36,7 @@ import { BottomControls, UpgradePill } from './BottomControls';
 import { nodeTypes } from './NodeTypes';
 import { Cursors } from './Cursors';
 import { AncestryPanel } from './AncestryPanel';
+import { CompareOverlay } from './CompareOverlay';
 
 const CURSOR_THROTTLE_MS = 60;
 
@@ -97,6 +98,8 @@ function CanvasInner({ projectId }: { projectId: string }) {
   const removeEdge = useWorkflowStore((s) => s.removeEdge);
   const setCursor = useWorkflowStore((s) => s.setCursor);
   const dropCursor = useWorkflowStore((s) => s.dropCursor);
+  const compareDiff = useWorkflowStore((s) => s.compareDiff);
+  const exitCompareMode = useWorkflowStore((s) => s.exitCompareMode);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const lastCursorEmit = useRef(0);
@@ -108,6 +111,17 @@ function CanvasInner({ projectId }: { projectId: string }) {
   useEffect(() => {
     setProjectId(projectId);
   }, [projectId, setProjectId]);
+
+  // Bit 5: Esc exits compare mode.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && useWorkflowStore.getState().compareDiff) {
+        exitCompareMode();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [exitCompareMode]);
 
   useEffect(() => {
     const socket = getSocket();
@@ -271,19 +285,29 @@ function CanvasInner({ projectId }: { projectId: string }) {
         color: isDark ? '#f3f4fb' : '#0f121e',
       }}
     >
-      <ReactFlow
-        nodes={rfNodes}
-        edges={rfEdges}
-        nodeTypes={nodeTypes}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        proOptions={{ hideAttribution: true }}
-        fitView
-        style={{ background: canvasBg }}
+      <div
+        style={{
+          width: '100%',
+          height: '100%',
+          opacity: compareDiff ? 0.55 : 1,
+          transition: 'opacity 200ms',
+        }}
       >
-        <Background gap={24} size={1.4} color={dotColor} />
-      </ReactFlow>
+        <ReactFlow
+          nodes={rfNodes}
+          edges={rfEdges}
+          nodeTypes={nodeTypes}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          proOptions={{ hideAttribution: true }}
+          fitView
+          style={{ background: canvasBg }}
+        >
+          <Background gap={24} size={1.4} color={dotColor} />
+        </ReactFlow>
+      </div>
+      <CompareOverlay />
       <Cursors />
       <TopBar name={boardName} onRename={setBoardName} />
       <PresenceStack users={users} />

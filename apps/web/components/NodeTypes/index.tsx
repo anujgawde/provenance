@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { NodeProps, NodeTypes } from 'reactflow';
 import type {
   AiModelNodeData,
@@ -10,12 +10,52 @@ import type {
   TextPromptNodeData,
 } from '@provenance/shared';
 import { useWorkflowStore } from '@/store/useWorkflow';
+import { getSocket } from '@/lib/socket';
 import { fetchLineage } from '@/lib/api';
 import { NodeCard } from './NodeCard';
 
 const ACCENT = '#3F3FE0';
 
-function TextPromptNode({ data }: NodeProps<TextPromptNodeData>) {
+function useInlineEdit(
+  nodeId: string,
+  currentText: string,
+  field: string,
+) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(currentText);
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const updateNode = useWorkflowStore((s) => s.updateNode);
+
+  useEffect(() => {
+    if (!editing) setDraft(currentText);
+  }, [currentText, editing]);
+
+  useEffect(() => {
+    if (editing) ref.current?.focus();
+  }, [editing]);
+
+  const commit = useCallback(() => {
+    setEditing(false);
+    if (draft === currentText) return;
+    const data = { [field]: draft };
+    updateNode(nodeId, { data });
+    getSocket().emit('op:node:update', {
+      type: 'op:node:update',
+      nodeId,
+      changes: { data },
+    });
+  }, [draft, currentText, field, nodeId, updateNode]);
+
+  return { editing, draft, ref, setEditing, setDraft, commit };
+}
+
+function TextPromptNode({ id, data }: NodeProps<TextPromptNodeData>) {
+  const { editing, draft, ref, setEditing, setDraft, commit } = useInlineEdit(
+    id,
+    data.text,
+    'text',
+  );
+
   return (
     <NodeCard
       footer={
@@ -26,17 +66,46 @@ function TextPromptNode({ data }: NodeProps<TextPromptNodeData>) {
       }
       accent={ACCENT}
     >
-      <div
-        style={{
-          fontSize: 13,
-          lineHeight: 1.4,
-          color: 'rgba(15,18,30,0.85)',
-          minHeight: 64,
-          whiteSpace: 'pre-wrap',
-        }}
-      >
-        {data.text || 'Type a prompt…'}
-      </div>
+      {editing ? (
+        <textarea
+          ref={ref}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') commit();
+          }}
+          style={{
+            fontSize: 13,
+            lineHeight: 1.4,
+            color: 'rgba(15,18,30,0.85)',
+            minHeight: 64,
+            width: '100%',
+            resize: 'vertical',
+            border: '1.5px solid rgba(99,102,241,0.4)',
+            borderRadius: 8,
+            padding: 6,
+            background: '#fafbff',
+            outline: 'none',
+            fontFamily: 'inherit',
+          }}
+        />
+      ) : (
+        <div
+          onDoubleClick={() => setEditing(true)}
+          style={{
+            fontSize: 13,
+            lineHeight: 1.4,
+            color: 'rgba(15,18,30,0.85)',
+            minHeight: 64,
+            whiteSpace: 'pre-wrap',
+            cursor: 'text',
+          }}
+          title="Double-click to edit"
+        >
+          {data.text || 'Double-click to type a prompt…'}
+        </div>
+      )}
     </NodeCard>
   );
 }
@@ -136,10 +205,16 @@ function OutputNode({ id, data }: NodeProps<OutputNodeData>) {
   const setAncestryNodeId = useWorkflowStore((s) => s.setAncestryNodeId);
   const [genCount, setGenCount] = useState<number | null>(null);
 
+  const { editing, draft, ref, setEditing, setDraft, commit } = useInlineEdit(
+    id,
+    data.text ?? '',
+    'text',
+  );
+
   useEffect(() => {
     if (!projectId) return;
     fetchLineage(projectId, id).then((gens) => setGenCount(gens.length));
-  }, [projectId, id]);
+  }, [projectId, id, data.text]);
 
   return (
     <NodeCard
@@ -169,19 +244,47 @@ function OutputNode({ id, data }: NodeProps<OutputNodeData>) {
       }
       accent="#39B27A"
     >
-      <div
-        style={{
-          minHeight: 90,
-          borderRadius: 12,
-          background: 'linear-gradient(135deg, #fafafa, #eef0f9)',
-          padding: 10,
-          fontSize: 12,
-          color: 'rgba(15,18,30,0.75)',
-          whiteSpace: 'pre-wrap',
-        }}
-      >
-        {data.text || 'Output will appear here.'}
-      </div>
+      {editing ? (
+        <textarea
+          ref={ref}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') commit();
+          }}
+          style={{
+            minHeight: 90,
+            width: '100%',
+            resize: 'vertical',
+            borderRadius: 12,
+            border: '1.5px solid rgba(57,178,122,0.4)',
+            background: '#fafbff',
+            padding: 10,
+            fontSize: 12,
+            color: 'rgba(15,18,30,0.75)',
+            outline: 'none',
+            fontFamily: 'inherit',
+          }}
+        />
+      ) : (
+        <div
+          onDoubleClick={() => setEditing(true)}
+          style={{
+            minHeight: 90,
+            borderRadius: 12,
+            background: 'linear-gradient(135deg, #fafafa, #eef0f9)',
+            padding: 10,
+            fontSize: 12,
+            color: 'rgba(15,18,30,0.75)',
+            whiteSpace: 'pre-wrap',
+            cursor: 'text',
+          }}
+          title="Double-click to edit"
+        >
+          {data.text || 'Double-click to edit output.'}
+        </div>
+      )}
     </NodeCard>
   );
 }

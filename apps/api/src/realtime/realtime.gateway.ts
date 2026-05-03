@@ -121,12 +121,27 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const meta = this.socketProject.get(client.id);
     if (!meta) return;
     const project = this.getProject(meta.projectId);
+    let entryId: string | null = null;
     try {
-      this.capture.capture(meta.projectId, project.workflow, op);
+      const entry = this.capture.capture(meta.projectId, project.workflow, op);
+      entryId = entry?.id ?? null;
     } catch (err) {
       this.logger.warn(`capture failed for ${op.type}: ${(err as Error).message}`);
     }
     this.applyOp(project.workflow, op);
+    // Bit 5: attach full post-op workflow snapshot to output-node updates.
+    // We snapshot every update on output nodes (cheap; workflow is small) so
+    // every row the ancestry panel lists has a snapshot graph-diff can use.
+    if (entryId && op.type === 'op:node:update') {
+      const node = project.workflow.nodes.find((n) => n.id === op.nodeId);
+      if (node?.type === 'output') {
+        try {
+          this.capture.attachWorkflowSnapshot(entryId, project.workflow);
+        } catch (err) {
+          this.logger.warn(`snapshot attach failed: ${(err as Error).message}`);
+        }
+      }
+    }
     project.seq += 1;
     const stamped = { ...op, seq: project.seq } as Operation & { seq: number };
     client.to(room(meta.projectId)).emit(op.type as any, stamped as any);

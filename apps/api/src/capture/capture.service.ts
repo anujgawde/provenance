@@ -112,6 +112,28 @@ export class CaptureService {
     }
   }
 
+  /**
+   * Bit 5: persist a full post-op workflow snapshot alongside an existing
+   * lineage entry. Called by the gateway AFTER applyOp so the snapshot reflects
+   * the workflow state the generation produced.
+   */
+  attachWorkflowSnapshot(entryId: string, workflow: Workflow): void {
+    this.db.db
+      .prepare(`UPDATE lineage_entries SET workflow_snapshot = ? WHERE id = ?`)
+      .run(JSON.stringify(workflow), entryId);
+  }
+
+  getWorkflowSnapshot(projectId: string, entryId: string): Workflow | null {
+    const row = this.db.db
+      .prepare(
+        `SELECT workflow_snapshot FROM lineage_entries
+         WHERE id = ? AND project_id = ?`,
+      )
+      .get(entryId, projectId) as { workflow_snapshot: string | null } | undefined;
+    if (!row || !row.workflow_snapshot) return null;
+    return JSON.parse(row.workflow_snapshot) as Workflow;
+  }
+
   getGenerations(projectId: string, nodeId: string): Generation[] {
     type Row = { id: string; parent_ids: string; snapshot: string; created_at: number };
     const rows = this.db.db
@@ -124,12 +146,19 @@ export class CaptureService {
       .all(projectId, nodeId) as Row[];
 
     return rows
-      .map((row) => ({
-        id: row.id,
-        createdAt: row.created_at,
-        parentIds: JSON.parse(row.parent_ids) as string[],
-        text: (JSON.parse(row.snapshot) as { data?: { text?: string } }).data?.text ?? '',
-      }))
+      .map((row) => {
+        const snap = JSON.parse(row.snapshot) as {
+          changes?: { data?: { text?: string } };
+          data?: { text?: string };
+        };
+        const text = snap.changes?.data?.text ?? snap.data?.text ?? '';
+        return {
+          id: row.id,
+          createdAt: row.created_at,
+          parentIds: JSON.parse(row.parent_ids) as string[],
+          text,
+        };
+      })
       .filter((g) => g.text !== '');
   }
 }

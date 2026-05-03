@@ -2,6 +2,7 @@
 
 import { create } from 'zustand';
 import type {
+  GraphDiff,
   Operation,
   PresenceUser,
   Workflow,
@@ -37,6 +38,14 @@ interface WorkflowStore {
   removeEdge: (id: string) => void;
   setCursor: (c: RemoteCursor) => void;
   dropCursor: (userId: string) => void;
+  // Bit 5 — compare mode (local-only, not relayed via socket)
+  compareSelection: string[];
+  compareBefore: Workflow | null;
+  compareAfter: Workflow | null;
+  compareDiff: GraphDiff | null;
+  toggleCompareSelection: (lineageId: string) => void;
+  enterCompareMode: (before: Workflow, after: Workflow, diff: GraphDiff) => void;
+  exitCompareMode: () => void;
 }
 
 export const useWorkflowStore = create<WorkflowStore>((set) => ({
@@ -125,5 +134,30 @@ export const useWorkflowStore = create<WorkflowStore>((set) => ({
       const next = { ...state.cursors };
       delete next[userId];
       return { cursors: next };
+    }),
+  compareSelection: [],
+  compareBefore: null,
+  compareAfter: null,
+  compareDiff: null,
+  toggleCompareSelection: (lineageId) =>
+    set((state) => {
+      const exists = state.compareSelection.includes(lineageId);
+      if (exists) {
+        return {
+          compareSelection: state.compareSelection.filter((id) => id !== lineageId),
+        };
+      }
+      // Cap at 2: drop the oldest if we're already at 2.
+      const next = [...state.compareSelection, lineageId].slice(-2);
+      return { compareSelection: next };
+    }),
+  enterCompareMode: (before, after, diff) =>
+    set({ compareBefore: before, compareAfter: after, compareDiff: diff }),
+  exitCompareMode: () =>
+    set({
+      compareSelection: [],
+      compareBefore: null,
+      compareAfter: null,
+      compareDiff: null,
     }),
 }));

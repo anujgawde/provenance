@@ -5,9 +5,9 @@ import ReactFlow, { Background, ReactFlowProvider } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { useWorkflowStore } from '@/store/useWorkflow';
 import { getSocket } from '@/lib/socket';
-import { fetchLineage, type Generation } from '@/lib/api';
+import { fetchLineage, fetchLineageSnapshot, type Generation } from '@/lib/api';
 import { nodeTypes } from './NodeTypes';
-import type { Workflow, WorkflowEdge, WorkflowNode } from '@provenance/shared';
+import { diffGraphs, type Workflow, type WorkflowEdge, type WorkflowNode } from '@provenance/shared';
 import type { Edge, Node } from 'reactflow';
 
 function getUpstreamSubgraph(workflow: Workflow, nodeId: string): Workflow {
@@ -78,10 +78,16 @@ export function AncestryPanel({ projectId }: { projectId: string }) {
   const ancestryNodeId = useWorkflowStore((s) => s.ancestryNodeId);
   const setAncestryNodeId = useWorkflowStore((s) => s.setAncestryNodeId);
   const updateNode = useWorkflowStore((s) => s.updateNode);
+  const compareSelection = useWorkflowStore((s) => s.compareSelection);
+  const compareDiff = useWorkflowStore((s) => s.compareDiff);
+  const toggleCompareSelection = useWorkflowStore((s) => s.toggleCompareSelection);
+  const enterCompareMode = useWorkflowStore((s) => s.enterCompareMode);
+  const exitCompareMode = useWorkflowStore((s) => s.exitCompareMode);
 
   const [generations, setGenerations] = useState<Generation[]>([]);
   const [loading, setLoading] = useState(false);
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [compareLoading, setCompareLoading] = useState(false);
 
   const isOpen = ancestryNodeId !== null;
 
@@ -96,6 +102,39 @@ export function AncestryPanel({ projectId }: { projectId: string }) {
       setLoading(false);
     });
   }, [projectId, ancestryNodeId]);
+
+  const handleCompareClick = useCallback(
+    async (gen: Generation) => {
+      // Toggle this id in selection. If we now have 2, fetch + compute diff.
+      const already = compareSelection.includes(gen.id);
+      toggleCompareSelection(gen.id);
+      const next = already
+        ? compareSelection.filter((id) => id !== gen.id)
+        : [...compareSelection, gen.id].slice(-2);
+
+      if (next.length === 2) {
+        setCompareLoading(true);
+        const [olderId, newerId] = (() => {
+          const a = generations.find((g) => g.id === next[0]);
+          const b = generations.find((g) => g.id === next[1]);
+          if (!a || !b) return next;
+          return a.createdAt <= b.createdAt ? [a.id, b.id] : [b.id, a.id];
+        })();
+        const [before, after] = await Promise.all([
+          fetchLineageSnapshot(projectId, olderId!),
+          fetchLineageSnapshot(projectId, newerId!),
+        ]);
+        if (before && after) {
+          enterCompareMode(before, after, diffGraphs(before, after));
+        }
+        setCompareLoading(false);
+      } else {
+        // dropped below 2 → exit compare mode if it was active
+        if (compareDiff) exitCompareMode();
+      }
+    },
+    [compareSelection, generations, projectId, toggleCompareSelection, enterCompareMode, exitCompareMode, compareDiff],
+  );
 
   const handleRestore = useCallback(
     (gen: Generation) => {
@@ -172,6 +211,45 @@ export function AncestryPanel({ projectId }: { projectId: string }) {
           ✕
         </button>
       </div>
+
+      {/* Compare-mode banner */}
+      {compareDiff && (
+        <div
+          style={{
+            margin: '10px 12px 0',
+            padding: '8px 12px',
+            borderRadius: 10,
+            background: 'rgba(99,102,241,0.08)',
+            border: '1px solid rgba(99,102,241,0.20)',
+            color: '#3730A3',
+            fontSize: 11,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <span style={{ fontWeight: 600 }}>
+            Comparing 2 generations · {compareDiff.nodes.added.length}+
+            {' / '}
+            {compareDiff.nodes.removed.length}−{' / '}
+            {compareDiff.nodes.changed.length}~
+          </span>
+          <button
+            type="button"
+            onClick={exitCompareMode}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#3730A3',
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            Exit (Esc)
+          </button>
+        </div>
+      )}
 
       {/* Mini graph */}
       {ancestryNodeId && (
@@ -265,24 +343,51 @@ export function AncestryPanel({ projectId }: { projectId: string }) {
                   {formatTime(gen.createdAt)}
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={() => handleRestore(gen)}
-                disabled={restoringId === gen.id}
-                style={{
-                  background: restoringId === gen.id ? '#39B27A' : 'rgba(57,178,122,0.10)',
-                  color: restoringId === gen.id ? '#fff' : '#39B27A',
-                  border: 'none',
-                  borderRadius: 8,
-                  padding: '4px 10px',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'background 200ms, color 200ms',
-                }}
-              >
-                {restoringId === gen.id ? '✓ Restored' : 'Restore'}
-              </button>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                {(() => {
+                  const idx = compareSelection.indexOf(gen.id);
+                  const selected = idx !== -1;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => handleCompareClick(gen)}
+                      disabled={compareLoading}
+                      title={selected ? `Selected (${idx + 1} of 2)` : 'Mark for comparison'}
+                      style={{
+                        background: selected ? '#6366F1' : 'rgba(99,102,241,0.10)',
+                        color: selected ? '#fff' : '#6366F1',
+                        border: 'none',
+                        borderRadius: 8,
+                        padding: '4px 10px',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        cursor: compareLoading ? 'wait' : 'pointer',
+                        transition: 'background 200ms, color 200ms',
+                      }}
+                    >
+                      {selected ? `Compare ${idx + 1}/2` : 'Compare'}
+                    </button>
+                  );
+                })()}
+                <button
+                  type="button"
+                  onClick={() => handleRestore(gen)}
+                  disabled={restoringId === gen.id}
+                  style={{
+                    background: restoringId === gen.id ? '#39B27A' : 'rgba(57,178,122,0.10)',
+                    color: restoringId === gen.id ? '#fff' : '#39B27A',
+                    border: 'none',
+                    borderRadius: 8,
+                    padding: '4px 10px',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'background 200ms, color 200ms',
+                  }}
+                >
+                  {restoringId === gen.id ? '✓ Restored' : 'Restore'}
+                </button>
+              </div>
             </div>
             <div
               style={{
