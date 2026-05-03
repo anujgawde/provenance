@@ -4,28 +4,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import ReactFlow, { Background, ReactFlowProvider } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { useWorkflowStore } from '@/store/useWorkflow';
-import { getSocket } from '@/lib/socket';
-import { fetchLineage, fetchLineageSnapshot, type Generation } from '@/lib/api';
+import { fetchLineages } from '@/lib/api';
 import { nodeTypes } from './NodeTypes';
-import { diffGraphs, type Workflow, type WorkflowEdge, type WorkflowNode } from '@provenance/shared';
+import {
+  diffGraphs,
+  type LineageRecord,
+  type Workflow,
+  type WorkflowEdge,
+  type WorkflowNode,
+} from '@provenance/shared';
 import type { Edge, Node } from 'reactflow';
-
-function getUpstreamSubgraph(workflow: Workflow, nodeId: string): Workflow {
-  const visited = new Set<string>();
-  const queue = [nodeId];
-  while (queue.length) {
-    const current = queue.shift()!;
-    if (visited.has(current)) continue;
-    visited.add(current);
-    for (const edge of workflow.edges.filter((e) => e.target === current)) {
-      queue.push(edge.source);
-    }
-  }
-  return {
-    nodes: workflow.nodes.filter((n) => visited.has(n.id)),
-    edges: workflow.edges.filter((e) => visited.has(e.source) && visited.has(e.target)),
-  };
-}
 
 function toRfNode(n: WorkflowNode): Node {
   return { id: n.id, type: n.type, position: n.position, data: n.data };
@@ -35,11 +23,26 @@ function toRfEdge(e: WorkflowEdge): Edge {
   return { id: e.id, source: e.source, target: e.target };
 }
 
-function MiniGraph({ nodeId }: { nodeId: string }) {
-  const workflow = useWorkflowStore((s) => s.workflow);
-  const subgraph = useMemo(() => getUpstreamSubgraph(workflow, nodeId), [workflow, nodeId]);
+function SubgraphMini({ subgraph }: { subgraph: Workflow }) {
   const rfNodes = useMemo(() => subgraph.nodes.map(toRfNode), [subgraph.nodes]);
   const rfEdges = useMemo(() => subgraph.edges.map(toRfEdge), [subgraph.edges]);
+
+  if (subgraph.nodes.length === 0) {
+    return (
+      <div
+        style={{
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'rgba(15,18,30,0.3)',
+          fontSize: 11,
+        }}
+      >
+        No upstream nodes
+      </div>
+    );
+  }
 
   return (
     <ReactFlowProvider>
@@ -74,81 +77,64 @@ function formatTime(ts: number): string {
   });
 }
 
+function getOutputText(lineage: LineageRecord): string {
+  if (!lineage.generationOutput) return '';
+  return lineage.generationOutput.text ?? '';
+}
+
 export function AncestryPanel({ projectId }: { projectId: string }) {
   const ancestryNodeId = useWorkflowStore((s) => s.ancestryNodeId);
   const setAncestryNodeId = useWorkflowStore((s) => s.setAncestryNodeId);
-  const updateNode = useWorkflowStore((s) => s.updateNode);
   const compareSelection = useWorkflowStore((s) => s.compareSelection);
   const compareDiff = useWorkflowStore((s) => s.compareDiff);
   const toggleCompareSelection = useWorkflowStore((s) => s.toggleCompareSelection);
   const enterCompareMode = useWorkflowStore((s) => s.enterCompareMode);
   const exitCompareMode = useWorkflowStore((s) => s.exitCompareMode);
 
-  const [generations, setGenerations] = useState<Generation[]>([]);
+  const [lineages, setLineages] = useState<LineageRecord[]>([]);
   const [loading, setLoading] = useState(false);
-  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [compareLoading, setCompareLoading] = useState(false);
 
   const isOpen = ancestryNodeId !== null;
 
   useEffect(() => {
     if (!ancestryNodeId) {
-      setGenerations([]);
+      setLineages([]);
       return;
     }
     setLoading(true);
-    fetchLineage(projectId, ancestryNodeId).then((gens) => {
-      setGenerations([...gens].reverse());
+    fetchLineages(projectId, ancestryNodeId).then((records) => {
+      setLineages([...records].reverse());
       setLoading(false);
     });
   }, [projectId, ancestryNodeId]);
 
   const handleCompareClick = useCallback(
-    async (gen: Generation) => {
-      // Toggle this id in selection. If we now have 2, fetch + compute diff.
-      const already = compareSelection.includes(gen.id);
-      toggleCompareSelection(gen.id);
+    (record: LineageRecord) => {
+      const already = compareSelection.includes(record.id);
+      toggleCompareSelection(record.id);
       const next = already
-        ? compareSelection.filter((id) => id !== gen.id)
-        : [...compareSelection, gen.id].slice(-2);
+        ? compareSelection.filter((id) => id !== record.id)
+        : [...compareSelection, record.id].slice(-2);
 
       if (next.length === 2) {
         setCompareLoading(true);
-        const [olderId, newerId] = (() => {
-          const a = generations.find((g) => g.id === next[0]);
-          const b = generations.find((g) => g.id === next[1]);
-          if (!a || !b) return next;
-          return a.createdAt <= b.createdAt ? [a.id, b.id] : [b.id, a.id];
-        })();
-        const [before, after] = await Promise.all([
-          fetchLineageSnapshot(projectId, olderId!),
-          fetchLineageSnapshot(projectId, newerId!),
-        ]);
-        if (before && after) {
+        const a = lineages.find((l) => l.id === next[0]);
+        const b = lineages.find((l) => l.id === next[1]);
+        if (a && b) {
+          const [before, after] =
+            a.capturedAt <= b.capturedAt
+              ? [a.workflowSubgraph, b.workflowSubgraph]
+              : [b.workflowSubgraph, a.workflowSubgraph];
           enterCompareMode(before, after, diffGraphs(before, after));
         }
         setCompareLoading(false);
       } else {
-        // dropped below 2 → exit compare mode if it was active
         if (compareDiff) exitCompareMode();
       }
     },
-    [compareSelection, generations, projectId, toggleCompareSelection, enterCompareMode, exitCompareMode, compareDiff],
-  );
-
-  const handleRestore = useCallback(
-    (gen: Generation) => {
-      if (!ancestryNodeId) return;
-      setRestoringId(gen.id);
-      updateNode(ancestryNodeId, { data: { text: gen.text } });
-      getSocket().emit('op:node:update', {
-        type: 'op:node:update',
-        nodeId: ancestryNodeId,
-        changes: { data: { text: gen.text } },
-      });
-      setTimeout(() => setRestoringId(null), 600);
-    },
-    [ancestryNodeId, updateNode],
+    [compareSelection, lineages, toggleCompareSelection, enterCompareMode, exitCompareMode, compareDiff],
   );
 
   return (
@@ -158,7 +144,7 @@ export function AncestryPanel({ projectId }: { projectId: string }) {
         top: 0,
         right: 0,
         height: '100vh',
-        width: 380,
+        width: 400,
         background: '#fff',
         borderLeft: '1px solid rgba(15,18,30,0.08)',
         boxShadow: '-8px 0 32px rgba(15,18,30,0.08)',
@@ -184,10 +170,10 @@ export function AncestryPanel({ projectId }: { projectId: string }) {
         }}
       >
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#0f121e' }}>Ancestry</div>
-          {generations.length > 0 && (
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#0f121e' }}>Provenance</div>
+          {lineages.length > 0 && (
             <div style={{ fontSize: 11, color: 'rgba(15,18,30,0.45)', marginTop: 2 }}>
-              {generations.length} generation{generations.length !== 1 ? 's' : ''}
+              {lineages.length} generation{lineages.length !== 1 ? 's' : ''}
             </div>
           )}
         </div>
@@ -231,7 +217,7 @@ export function AncestryPanel({ projectId }: { projectId: string }) {
           <span style={{ fontWeight: 600 }}>
             Comparing 2 generations · {compareDiff.nodes.added.length}+
             {' / '}
-            {compareDiff.nodes.removed.length}−{' / '}
+            {compareDiff.nodes.removed.length}-{' / '}
             {compareDiff.nodes.changed.length}~
           </span>
           <button
@@ -251,17 +237,10 @@ export function AncestryPanel({ projectId }: { projectId: string }) {
         </div>
       )}
 
-      {/* Mini graph */}
-      {ancestryNodeId && (
-        <div style={{ height: 200, flexShrink: 0, margin: '12px 12px 0' }}>
-          <MiniGraph nodeId={ancestryNodeId} />
-        </div>
-      )}
-
-      {/* Upstream label */}
+      {/* Section label */}
       <div
         style={{
-          padding: '10px 18px 6px',
+          padding: '12px 18px 6px',
           fontSize: 10,
           fontWeight: 700,
           letterSpacing: 0.6,
@@ -270,140 +249,185 @@ export function AncestryPanel({ projectId }: { projectId: string }) {
           flexShrink: 0,
         }}
       >
-        Generation History
+        Generation Lineage
       </div>
 
-      {/* Generations list */}
+      {/* Lineage list */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '0 12px 12px' }}>
         {loading && (
-          <div
-            style={{
-              padding: 24,
-              textAlign: 'center',
-              fontSize: 12,
-              color: 'rgba(15,18,30,0.4)',
-            }}
-          >
+          <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'rgba(15,18,30,0.4)' }}>
             Loading…
           </div>
         )}
 
-        {!loading && generations.length === 0 && (
-          <div
-            style={{
-              padding: 24,
-              textAlign: 'center',
-              fontSize: 12,
-              color: 'rgba(15,18,30,0.4)',
-            }}
-          >
+        {!loading && lineages.length === 0 && (
+          <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'rgba(15,18,30,0.4)' }}>
             No generations recorded yet.
             <br />
-            Connect an AI model and generate output.
+            Connect an AI model and click Generate.
           </div>
         )}
 
-        {generations.map((gen, idx) => (
-          <div
-            key={gen.id}
-            style={{
-              background: '#fafbff',
-              border: '1px solid rgba(15,18,30,0.07)',
-              borderRadius: 14,
-              padding: '12px 14px',
-              marginBottom: 8,
-            }}
-          >
+        {lineages.map((record, idx) => {
+          const isExpanded = expandedId === record.id;
+          const outputText = getOutputText(record);
+          const compareIdx = compareSelection.indexOf(record.id);
+          const isSelected = compareIdx !== -1;
+
+          return (
             <div
+              key={record.id}
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
+                background: '#fafbff',
+                border: isSelected
+                  ? '1.5px solid rgba(99,102,241,0.4)'
+                  : '1px solid rgba(15,18,30,0.07)',
+                borderRadius: 14,
                 marginBottom: 8,
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div
-                  style={{
-                    width: 20,
-                    height: 20,
-                    borderRadius: 999,
-                    background: '#39B27A',
-                    color: '#fff',
-                    fontSize: 9,
-                    fontWeight: 700,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  {generations.length - idx}
-                </div>
-                <span style={{ fontSize: 11, color: 'rgba(15,18,30,0.45)' }}>
-                  {formatTime(gen.createdAt)}
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                {(() => {
-                  const idx = compareSelection.indexOf(gen.id);
-                  const selected = idx !== -1;
-                  return (
-                    <button
-                      type="button"
-                      onClick={() => handleCompareClick(gen)}
-                      disabled={compareLoading}
-                      title={selected ? `Selected (${idx + 1} of 2)` : 'Mark for comparison'}
-                      style={{
-                        background: selected ? '#6366F1' : 'rgba(99,102,241,0.10)',
-                        color: selected ? '#fff' : '#6366F1',
-                        border: 'none',
-                        borderRadius: 8,
-                        padding: '4px 10px',
-                        fontSize: 11,
-                        fontWeight: 600,
-                        cursor: compareLoading ? 'wait' : 'pointer',
-                        transition: 'background 200ms, color 200ms',
-                      }}
-                    >
-                      {selected ? `Compare ${idx + 1}/2` : 'Compare'}
-                    </button>
-                  );
-                })()}
-                <button
-                  type="button"
-                  onClick={() => handleRestore(gen)}
-                  disabled={restoringId === gen.id}
-                  style={{
-                    background: restoringId === gen.id ? '#39B27A' : 'rgba(57,178,122,0.10)',
-                    color: restoringId === gen.id ? '#fff' : '#39B27A',
-                    border: 'none',
-                    borderRadius: 8,
-                    padding: '4px 10px',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    transition: 'background 200ms, color 200ms',
-                  }}
-                >
-                  {restoringId === gen.id ? '✓ Restored' : 'Restore'}
-                </button>
-              </div>
-            </div>
-            <div
-              style={{
-                fontSize: 12,
-                color: 'rgba(15,18,30,0.65)',
-                lineHeight: 1.5,
-                display: '-webkit-box',
-                WebkitLineClamp: 3,
-                WebkitBoxOrient: 'vertical',
                 overflow: 'hidden',
               }}
             >
-              {gen.text}
+              {/* Row header */}
+              <div
+                style={{
+                  padding: '12px 14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  cursor: 'pointer',
+                }}
+                onClick={() => setExpandedId(isExpanded ? null : record.id)}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div
+                    style={{
+                      width: 22,
+                      height: 22,
+                      borderRadius: 999,
+                      background: record.error ? '#EF4444' : '#3F3FE0',
+                      color: '#fff',
+                      fontSize: 9,
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    {lineages.length - idx}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'rgba(15,18,30,0.7)', fontWeight: 500 }}>
+                      {formatTime(record.capturedAt)}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'rgba(15,18,30,0.4)' }}>
+                      {record.model.provider}/{record.model.model}
+                      {' · '}
+                      {record.workflowSubgraph.nodes.length} nodes
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); handleCompareClick(record); }}
+                    disabled={compareLoading}
+                    style={{
+                      background: isSelected ? '#6366F1' : 'rgba(99,102,241,0.10)',
+                      color: isSelected ? '#fff' : '#6366F1',
+                      border: 'none',
+                      borderRadius: 8,
+                      padding: '4px 10px',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      cursor: compareLoading ? 'wait' : 'pointer',
+                      transition: 'background 200ms, color 200ms',
+                    }}
+                  >
+                    {isSelected ? `Compare ${compareIdx + 1}/2` : 'Compare'}
+                  </button>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: 'rgba(15,18,30,0.3)',
+                      transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)',
+                      transition: 'transform 200ms',
+                      display: 'inline-block',
+                    }}
+                  >
+                    ▾
+                  </span>
+                </div>
+              </div>
+
+              {/* Expanded: subgraph + output */}
+              {isExpanded && (
+                <div style={{ borderTop: '1px solid rgba(15,18,30,0.06)' }}>
+                  {/* Upstream subgraph mini view */}
+                  <div style={{ height: 180, margin: '8px 10px' }}>
+                    <SubgraphMini subgraph={record.workflowSubgraph} />
+                  </div>
+
+                  {/* Generation output */}
+                  {outputText && (
+                    <div
+                      style={{
+                        margin: '0 14px 10px',
+                        padding: 10,
+                        borderRadius: 10,
+                        background: 'rgba(57,178,122,0.06)',
+                        border: '1px solid rgba(57,178,122,0.15)',
+                        fontSize: 11,
+                        color: 'rgba(15,18,30,0.7)',
+                        lineHeight: 1.5,
+                        whiteSpace: 'pre-wrap',
+                        maxHeight: 120,
+                        overflowY: 'auto',
+                      }}
+                    >
+                      {outputText}
+                    </div>
+                  )}
+
+                  {record.error && (
+                    <div
+                      style={{
+                        margin: '0 14px 10px',
+                        padding: 10,
+                        borderRadius: 10,
+                        background: 'rgba(239,68,68,0.06)',
+                        border: '1px solid rgba(239,68,68,0.15)',
+                        fontSize: 11,
+                        color: '#B91C1C',
+                      }}
+                    >
+                      {record.error}
+                    </div>
+                  )}
+
+                  {/* Input details */}
+                  <div
+                    style={{
+                      margin: '0 14px 12px',
+                      fontSize: 10,
+                      color: 'rgba(15,18,30,0.45)',
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    <div><strong>Prompt:</strong> {record.generationInput.prompt}</div>
+                    {record.generationInput.system && (
+                      <div><strong>System:</strong> {record.generationInput.system}</div>
+                    )}
+                    {record.generationOutput?.usage && (
+                      <div>
+                        Tokens: {record.generationOutput.usage.inputTokens} in / {record.generationOutput.usage.outputTokens} out
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

@@ -19,6 +19,9 @@ import type {
   Workflow,
 } from '@provenance/shared';
 import { CaptureService } from '../capture/capture.service';
+import { LineageService } from '../capture/lineage.service';
+import { UpstreamService } from '../capture/upstream.service';
+import { AiService } from '../ai/ai.service';
 
 const room = (projectId: string) => `project:${projectId}`;
 
@@ -39,7 +42,13 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   private readonly projects = new Map<string, ProjectState>();
   private readonly socketProject = new Map<string, { projectId: string; userId: string }>();
 
-  constructor(_config: ConfigService, private readonly capture: CaptureService) {}
+  constructor(
+    _config: ConfigService,
+    private readonly capture: CaptureService,
+    private readonly lineageService: LineageService,
+    private readonly upstream: UpstreamService,
+    private readonly ai: AiService,
+  ) {}
 
   private getProject(projectId: string): ProjectState {
     let p = this.projects.get(projectId);
@@ -199,5 +208,128 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       x: payload.x,
       y: payload.y,
     });
+  }
+
+  @SubscribeMessage('generate:request')
+  async onGenerate(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { aiNodeId: string; input: import('@provenance/shared').AiGenerationInput },
+  ) {
+    const meta = this.socketProject.get(client.id);
+    if (!meta) return { ok: false as const, error: 'not in a session' };
+
+    const project = this.getProject(meta.projectId);
+    const aiNode = project.workflow.nodes.find((n) => n.id === payload.aiNodeId);
+    if (!aiNode || aiNode.type !== 'ai-model') {
+      return { ok: false as const, error: 'AI model node not found' };
+    }
+
+    // Find the downstream output node (target of an edge from this AI node)
+    const outputEdge = project.workflow.edges.find((e) => e.source === payload.aiNodeId);
+    let outputNode = outputEdge
+      ? project.workflow.nodes.find((n) => n.id === outputEdge.target && n.type === 'output')
+      : null;
+
+    // If no connected output node, create one
+    const { randomUUID } = await import('node:crypto');
+    let outputNodeId = outputNode?.id ?? null;
+    if (!outputNode) {
+      outputNodeId = randomUUID();
+      const newOutput: import('@provenance/shared').WorkflowNode = {
+        id: outputNodeId!,
+        type: 'output',
+        position: { x: aiNode.position.x + 340, y: aiNode.position.y },
+        data: { text: '' },
+      };
+      project.workflow.nodes.push(newOutput);
+      const newEdge: import('@provenance/shared').WorkflowEdge = {
+        id: randomUUID(),
+        source: payload.aiNodeId,
+        target: outputNodeId!,
+        sourceHandle: null,
+        targetHandle: null,
+      };
+      project.workflow.edges.push(newEdge);
+      // Broadcast the new node + edge
+      const addNodeOp = { type: 'op:node:add' as const, node: newOutput, seq: ++project.seq };
+      const addEdgeOp = { type: 'op:edge:add' as const, edge: newEdge, seq: ++project.seq };
+      this.server.to(room(meta.projectId)).emit('op:node:add', addNodeOp);
+      this.server.to(room(meta.projectId)).emit('op:edge:add', addEdgeOp);
+      outputNode = newOutput;
+    }
+
+    // Set AI node status to 'generating'
+    const aiData = aiNode.data as import('@provenance/shared').AiModelNodeData;
+    const statusOp: Extract<import('@provenance/shared').Operation, { type: 'op:node:update' }> = {
+      type: 'op:node:update',
+      nodeId: payload.aiNodeId,
+      changes: { data: { status: 'generating' } },
+    };
+    this.applyOp(project.workflow, statusOp);
+    this.server.to(room(meta.projectId)).emit('op:node:update', { ...statusOp, seq: ++project.seq });
+
+    // Capture lineage (upstream subgraph BEFORE generation)
+    const model: import('@provenance/shared').AiModelDescriptor = aiData.model ?? { provider: 'mock', model: 'mock-v1' };
+    const lineage = this.lineageService.capture({
+      projectId: meta.projectId,
+      aiNodeId: payload.aiNodeId,
+      outputNodeId: outputNodeId,
+      generatedBy: meta.userId,
+      model,
+      workflow: project.workflow,
+      input: payload.input,
+    });
+
+    // Get upstream nodes for context
+    const upstreamNodes = this.upstream
+      .upstreamSubgraph(project.workflow, payload.aiNodeId)
+      .nodes;
+
+    try {
+      const output = await this.ai.generate(model, payload.input, upstreamNodes);
+      this.lineageService.attachOutput(lineage.id, output);
+
+      // Write generated text to the output node
+      const updateOp: Extract<import('@provenance/shared').Operation, { type: 'op:node:update' }> = {
+        type: 'op:node:update',
+        nodeId: outputNodeId!,
+        changes: { data: { text: output.text, lineageId: lineage.id } },
+      };
+      this.applyOp(project.workflow, updateOp);
+      this.server.to(room(meta.projectId)).emit('op:node:update', { ...updateOp, seq: ++project.seq });
+
+      // Set AI node status back to 'idle'
+      const idleOp: Extract<import('@provenance/shared').Operation, { type: 'op:node:update' }> = {
+        type: 'op:node:update',
+        nodeId: payload.aiNodeId,
+        changes: { data: { status: 'idle' } },
+      };
+      this.applyOp(project.workflow, idleOp);
+      this.server.to(room(meta.projectId)).emit('op:node:update', { ...idleOp, seq: ++project.seq });
+
+      // Broadcast lineage:captured
+      lineage.generationOutput = output;
+      this.server.to(room(meta.projectId)).emit('lineage:captured', {
+        lineage,
+        outputNode: project.workflow.nodes.find((n) => n.id === outputNodeId)!,
+      });
+
+      return { ok: true as const, lineageId: lineage.id, outputNodeId: outputNodeId! };
+    } catch (err) {
+      const message = (err as Error).message;
+      this.lineageService.attachError(lineage.id, message);
+      this.logger.error(`generation failed: ${message}`);
+
+      // Set AI node status to error
+      const errOp: Extract<import('@provenance/shared').Operation, { type: 'op:node:update' }> = {
+        type: 'op:node:update',
+        nodeId: payload.aiNodeId,
+        changes: { data: { status: 'error' } },
+      };
+      this.applyOp(project.workflow, errOp);
+      this.server.to(room(meta.projectId)).emit('op:node:update', { ...errOp, seq: ++project.seq });
+
+      return { ok: false as const, error: message };
+    }
   }
 }

@@ -11,7 +11,7 @@ import type {
 } from '@provenance/shared';
 import { useWorkflowStore } from '@/store/useWorkflow';
 import { getSocket } from '@/lib/socket';
-import { fetchLineage } from '@/lib/api';
+import { fetchLineages } from '@/lib/api';
 import { NodeCard } from './NodeCard';
 
 const ACCENT = '#3F3FE0';
@@ -160,14 +160,28 @@ function StyleModifierNode({ data }: NodeProps<StyleModifierNodeData>) {
   );
 }
 
-function AiModelNode({ data }: NodeProps<AiModelNodeData>) {
+function AiModelNode({ id, data }: NodeProps<AiModelNodeData>) {
   const generating = data.status === 'generating';
+
+  const handleGenerate = useCallback(() => {
+    if (generating) return;
+    const prompt = data.systemPrompt || 'Generate a creative output';
+    getSocket().emit('generate:request', {
+      aiNodeId: id,
+      input: { prompt, system: data.systemPrompt },
+    }, (resp) => {
+      if (!resp.ok) {
+        console.warn('generate failed:', resp.error);
+      }
+    });
+  }, [id, data.systemPrompt, generating]);
+
   return (
     <NodeCard
       width={280}
       footer={
         <>
-          <span>IMAGE-TO-IMAGE · {data.model?.model ?? 'Claude'}</span>
+          <span>AI · {data.model?.model ?? 'Claude'}</span>
           <span style={{ color: ACCENT, fontWeight: 700 }}>{generating ? '…' : '⏵'}</span>
         </>
       }
@@ -179,8 +193,8 @@ function AiModelNode({ data }: NodeProps<AiModelNodeData>) {
         </div>
         <button
           type="button"
-          disabled
-          title="Generate (wired in Bit 6)"
+          disabled={generating}
+          onClick={handleGenerate}
           style={{
             background: ACCENT,
             color: '#fff',
@@ -189,8 +203,9 @@ function AiModelNode({ data }: NodeProps<AiModelNodeData>) {
             padding: '8px 14px',
             fontWeight: 600,
             fontSize: 12,
-            cursor: 'not-allowed',
-            opacity: generating ? 0.7 : 0.85,
+            cursor: generating ? 'wait' : 'pointer',
+            opacity: generating ? 0.7 : 1,
+            transition: 'opacity 200ms',
           }}
         >
           {generating ? 'Generating…' : 'Generate'}
@@ -213,7 +228,7 @@ function OutputNode({ id, data }: NodeProps<OutputNodeData>) {
 
   useEffect(() => {
     if (!projectId) return;
-    fetchLineage(projectId, id).then((gens) => setGenCount(gens.length));
+    fetchLineages(projectId, id).then((records) => setGenCount(records.length));
   }, [projectId, id, data.text]);
 
   return (

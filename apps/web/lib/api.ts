@@ -1,7 +1,8 @@
-import type { Workflow } from '@provenance/shared';
+import type { LineageRecord, Workflow } from '@provenance/shared';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
+// Legacy per-op generation type (kept for backwards compat)
 export interface Generation {
   id: string;
   createdAt: number;
@@ -31,6 +32,38 @@ export async function fetchLineageSnapshot(
     if (!res.ok) return null;
     const data = (await res.json()) as { workflow: Workflow };
     return data.workflow;
+  } catch {
+    return null;
+  }
+}
+
+// Bit 6: lineage records (upstream subgraph snapshots from generation)
+export async function fetchLineages(
+  projectId: string,
+  outputNodeId: string,
+): Promise<LineageRecord[]> {
+  try {
+    const res = await fetch(
+      `${API_URL}/projects/${projectId}/lineages/${outputNodeId}`,
+    );
+    if (!res.ok) return [];
+    const data = (await res.json()) as { lineages: LineageRecord[] };
+    return data.lineages;
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchLineageRecord(
+  projectId: string,
+  lineageId: string,
+): Promise<LineageRecord | null> {
+  try {
+    const res = await fetch(
+      `${API_URL}/projects/${projectId}/lineage-record/${lineageId}`,
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as LineageRecord;
   } catch {
     return null;
   }
