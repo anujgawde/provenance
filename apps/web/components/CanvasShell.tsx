@@ -37,6 +37,8 @@ import { nodeTypes } from './NodeTypes';
 import { Cursors } from './Cursors';
 import { AncestryPanel } from './AncestryPanel';
 import { CompareOverlay } from './CompareOverlay';
+import { ConnectionBanner } from './ConnectionBanner';
+import { ToastContainer } from './Toast';
 
 const CURSOR_THROTTLE_MS = 60;
 
@@ -100,6 +102,10 @@ function CanvasInner({ projectId }: { projectId: string }) {
   const dropCursor = useWorkflowStore((s) => s.dropCursor);
   const compareDiff = useWorkflowStore((s) => s.compareDiff);
   const exitCompareMode = useWorkflowStore((s) => s.exitCompareMode);
+  const pushUndo = useWorkflowStore((s) => s.pushUndo);
+  const popUndo = useWorkflowStore((s) => s.popUndo);
+  const selectedNodeIds = useWorkflowStore((s) => s.selectedNodeIds);
+  const setSelectedNodeIds = useWorkflowStore((s) => s.setSelectedNodeIds);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const lastCursorEmit = useRef(0);
@@ -112,16 +118,74 @@ function CanvasInner({ projectId }: { projectId: string }) {
     setProjectId(projectId);
   }, [projectId, setProjectId]);
 
-  // Bit 5: Esc exits compare mode.
+  // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && useWorkflowStore.getState().compareDiff) {
-        exitCompareMode();
+      const target = e.target as HTMLElement;
+      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+
+      // Escape: exit compare mode or deselect
+      if (e.key === 'Escape') {
+        if (useWorkflowStore.getState().compareDiff) {
+          exitCompareMode();
+        } else {
+          setSelectedNodeIds([]);
+        }
+        return;
+      }
+
+      if (isInput) return;
+
+      // Delete/Backspace: remove selected nodes
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        const ids = useWorkflowStore.getState().selectedNodeIds;
+        if (ids.length === 0) return;
+        const wf = useWorkflowStore.getState().workflow;
+        const undoOps: Operation[] = [];
+        ids.forEach((id) => {
+          const node = wf.nodes.find((n) => n.id === id);
+          if (node) undoOps.push({ type: 'op:node:add', node });
+          const connected = wf.edges.filter((ed) => ed.source === id || ed.target === id);
+          connected.forEach((ed) => undoOps.push({ type: 'op:edge:add', edge: ed }));
+          removeNode(id);
+          emit('op:node:remove', { type: 'op:node:remove', nodeId: id });
+        });
+        if (undoOps.length > 0) pushUndo({ ops: undoOps });
+        setSelectedNodeIds([]);
+        return;
+      }
+
+      // Cmd+Z / Ctrl+Z: undo
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        const entry = popUndo();
+        if (!entry) return;
+        entry.ops.forEach((op) => {
+          switch (op.type) {
+            case 'op:node:add':
+              upsertNode(op.node);
+              emit('op:node:add', op);
+              break;
+            case 'op:edge:add':
+              upsertEdge(op.edge);
+              emit('op:edge:add', op);
+              break;
+            case 'op:node:remove':
+              removeNode(op.nodeId);
+              emit('op:node:remove', op);
+              break;
+            case 'op:edge:remove':
+              removeEdge(op.edgeId);
+              emit('op:edge:remove', op);
+              break;
+          }
+        });
+        return;
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [exitCompareMode]);
+  }, [exitCompareMode, removeNode, emit, pushUndo, popUndo, upsertNode, upsertEdge, removeEdge, setSelectedNodeIds]);
 
   useEffect(() => {
     const socket = getSocket();
@@ -185,7 +249,6 @@ function CanvasInner({ projectId }: { projectId: string }) {
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      // keep applyNodeChanges around for selection/dimensions side-effects ReactFlow expects
       const current = workflow.nodes.map(toRfNode);
       void applyNodeChanges(changes, current);
       changes.forEach((ch) => {
@@ -197,12 +260,18 @@ function CanvasInner({ projectId }: { projectId: string }) {
             changes: { position: ch.position },
           });
         } else if (ch.type === 'remove') {
+          const node = workflow.nodes.find((n) => n.id === ch.id);
+          const undoOps: Operation[] = [];
+          if (node) undoOps.push({ type: 'op:node:add', node });
+          const connected = workflow.edges.filter((e) => e.source === ch.id || e.target === ch.id);
+          connected.forEach((e) => undoOps.push({ type: 'op:edge:add', edge: e }));
+          if (undoOps.length > 0) pushUndo({ ops: undoOps });
           removeNode(ch.id);
           emit('op:node:remove', { type: 'op:node:remove', nodeId: ch.id });
         }
       });
     },
-    [workflow.nodes, updateNode, removeNode, emit],
+    [workflow.nodes, workflow.edges, updateNode, removeNode, emit, pushUndo],
   );
 
   const onEdgesChange = useCallback(
@@ -247,6 +316,13 @@ function CanvasInner({ projectId }: { projectId: string }) {
       emit('op:node:add', { type: 'op:node:add', node });
     },
     [upsertNode, emit],
+  );
+
+  const onSelectionChange = useCallback(
+    ({ nodes }: { nodes: Node[] }) => {
+      setSelectedNodeIds(nodes.map((n) => n.id));
+    },
+    [setSelectedNodeIds],
   );
 
   const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -300,6 +376,7 @@ function CanvasInner({ projectId }: { projectId: string }) {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onSelectionChange={onSelectionChange}
           proOptions={{ hideAttribution: true }}
           fitView
           style={{ background: canvasBg }}
@@ -322,6 +399,8 @@ function CanvasInner({ projectId }: { projectId: string }) {
       <BottomControls theme={theme} setTheme={setTheme} />
       <UpgradePill />
       <AncestryPanel projectId={projectId} />
+      <ConnectionBanner />
+      <ToastContainer />
     </div>
   );
 }

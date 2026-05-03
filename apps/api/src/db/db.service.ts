@@ -77,5 +77,15 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
       CREATE INDEX IF NOT EXISTS idx_lineages_output
         ON lineages (project_id, output_node_id, captured_at);
     `);
+
+    // Bit 7: project workflow persistence — survives API restarts.
+    this._db.exec(`
+      CREATE TABLE IF NOT EXISTS project_workflows (
+        project_id TEXT PRIMARY KEY,
+        workflow TEXT NOT NULL,
+        seq INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL
+      );
+    `);
   }
 }

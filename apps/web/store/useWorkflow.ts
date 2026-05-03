@@ -17,12 +17,18 @@ export interface RemoteCursor {
   ts: number;
 }
 
+interface UndoEntry {
+  ops: Operation[];
+}
+
 interface WorkflowStore {
   workflow: Workflow;
   users: PresenceUser[];
   cursors: Record<string, RemoteCursor>;
   projectId: string;
   ancestryNodeId: string | null;
+  undoStack: UndoEntry[];
+  selectedNodeIds: string[];
   setWorkflow: (w: Workflow) => void;
   setUsers: (u: PresenceUser[]) => void;
   setProjectId: (id: string) => void;
@@ -38,6 +44,9 @@ interface WorkflowStore {
   removeEdge: (id: string) => void;
   setCursor: (c: RemoteCursor) => void;
   dropCursor: (userId: string) => void;
+  pushUndo: (entry: UndoEntry) => void;
+  popUndo: () => UndoEntry | undefined;
+  setSelectedNodeIds: (ids: string[]) => void;
   // Bit 5 — compare mode (local-only, not relayed via socket)
   compareSelection: string[];
   compareBefore: Workflow | null;
@@ -48,12 +57,16 @@ interface WorkflowStore {
   exitCompareMode: () => void;
 }
 
-export const useWorkflowStore = create<WorkflowStore>((set) => ({
+const MAX_UNDO = 50;
+
+export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   workflow: { nodes: [], edges: [] },
   users: [],
   cursors: {},
   projectId: '',
   ancestryNodeId: null,
+  undoStack: [],
+  selectedNodeIds: [],
   setWorkflow: (workflow) => set({ workflow }),
   setUsers: (users) => set({ users }),
   setProjectId: (projectId) => set({ projectId }),
@@ -128,6 +141,18 @@ export const useWorkflowStore = create<WorkflowStore>((set) => ({
     set((state) => ({
       workflow: { ...state.workflow, edges: state.workflow.edges.filter((e) => e.id !== id) },
     })),
+  pushUndo: (entry) =>
+    set((state) => ({
+      undoStack: [...state.undoStack.slice(-(MAX_UNDO - 1)), entry],
+    })),
+  popUndo: () => {
+    const stack = get().undoStack;
+    if (stack.length === 0) return undefined;
+    const entry = stack[stack.length - 1]!;
+    set({ undoStack: stack.slice(0, -1) });
+    return entry;
+  },
+  setSelectedNodeIds: (ids) => set({ selectedNodeIds: ids }),
   setCursor: (c) => set((state) => ({ cursors: { ...state.cursors, [c.userId]: c } })),
   dropCursor: (userId) =>
     set((state) => {

@@ -12,6 +12,7 @@ import type {
 import { useWorkflowStore } from '@/store/useWorkflow';
 import { getSocket } from '@/lib/socket';
 import { fetchLineages } from '@/lib/api';
+import { useToastStore } from '../Toast';
 import { NodeCard } from './NodeCard';
 
 const ACCENT = '#3F3FE0';
@@ -162,6 +163,7 @@ function StyleModifierNode({ data }: NodeProps<StyleModifierNodeData>) {
 
 function AiModelNode({ id, data }: NodeProps<AiModelNodeData>) {
   const generating = data.status === 'generating';
+  const addToast = useToastStore((s) => s.add);
 
   const handleGenerate = useCallback(() => {
     if (generating) return;
@@ -171,10 +173,12 @@ function AiModelNode({ id, data }: NodeProps<AiModelNodeData>) {
       input: { prompt, system: data.systemPrompt },
     }, (resp) => {
       if (!resp.ok) {
-        console.warn('generate failed:', resp.error);
+        addToast(`Generation failed: ${resp.error ?? 'Unknown error'}`);
       }
     });
-  }, [id, data.systemPrompt, generating]);
+  }, [id, data.systemPrompt, generating, addToast]);
+
+  const isError = data.status === 'error';
 
   return (
     <NodeCard
@@ -182,21 +186,23 @@ function AiModelNode({ id, data }: NodeProps<AiModelNodeData>) {
       footer={
         <>
           <span>AI · {data.model?.model ?? 'Claude'}</span>
-          <span style={{ color: ACCENT, fontWeight: 700 }}>{generating ? '…' : '⏵'}</span>
+          <span style={{ color: isError ? '#dc2626' : ACCENT, fontWeight: 700 }}>
+            {generating ? '…' : isError ? '!' : '⏵'}
+          </span>
         </>
       }
-      accent={ACCENT}
+      accent={isError ? '#dc2626' : ACCENT}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div style={{ fontSize: 12, color: 'rgba(15,18,30,0.55)' }}>
-          {data.systemPrompt || 'Tap to configure model'}
+        <div style={{ fontSize: 12, color: isError ? '#dc2626' : 'rgba(15,18,30,0.55)' }}>
+          {isError ? 'Generation failed — try again' : (data.systemPrompt || 'Tap to configure model')}
         </div>
         <button
           type="button"
           disabled={generating}
           onClick={handleGenerate}
           style={{
-            background: ACCENT,
+            background: isError ? '#dc2626' : ACCENT,
             color: '#fff',
             border: 'none',
             borderRadius: 12,
@@ -208,7 +214,7 @@ function AiModelNode({ id, data }: NodeProps<AiModelNodeData>) {
             transition: 'opacity 200ms',
           }}
         >
-          {generating ? 'Generating…' : 'Generate'}
+          {generating ? 'Generating…' : isError ? 'Retry' : 'Generate'}
         </button>
       </div>
     </NodeCard>

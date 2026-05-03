@@ -22,6 +22,7 @@ import { CaptureService } from '../capture/capture.service';
 import { LineageService } from '../capture/lineage.service';
 import { UpstreamService } from '../capture/upstream.service';
 import { AiService } from '../ai/ai.service';
+import { WorkflowPersistenceService } from '../db/workflow-persistence.service';
 
 const room = (projectId: string) => `project:${projectId}`;
 
@@ -42,21 +43,35 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   private readonly projects = new Map<string, ProjectState>();
   private readonly socketProject = new Map<string, { projectId: string; userId: string }>();
 
+  private static readonly PERSIST_EVERY = 5;
+
   constructor(
     _config: ConfigService,
     private readonly capture: CaptureService,
     private readonly lineageService: LineageService,
     private readonly upstream: UpstreamService,
     private readonly ai: AiService,
+    private readonly persistence: WorkflowPersistenceService,
   ) {}
 
   private getProject(projectId: string): ProjectState {
     let p = this.projects.get(projectId);
     if (!p) {
-      p = { workflow: { nodes: [], edges: [] }, users: new Map(), seq: 0 };
+      const saved = this.persistence.load(projectId);
+      p = {
+        workflow: saved?.workflow ?? { nodes: [], edges: [] },
+        users: new Map(),
+        seq: saved?.seq ?? 0,
+      };
       this.projects.set(projectId, p);
     }
     return p;
+  }
+
+  private persistIfNeeded(projectId: string, project: ProjectState): void {
+    if (project.seq % RealtimeGateway.PERSIST_EVERY === 0) {
+      this.persistence.save(projectId, project.workflow, project.seq);
+    }
   }
 
   private applyOp(workflow: Workflow, op: Operation): void {
@@ -152,6 +167,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       }
     }
     project.seq += 1;
+    this.persistIfNeeded(meta.projectId, project);
     const stamped = { ...op, seq: project.seq } as Operation & { seq: number };
     client.to(room(meta.projectId)).emit(op.type as any, stamped as any);
   }
@@ -314,6 +330,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         outputNode: project.workflow.nodes.find((n) => n.id === outputNodeId)!,
       });
 
+      this.persistence.save(meta.projectId, project.workflow, project.seq);
       return { ok: true as const, lineageId: lineage.id, outputNodeId: outputNodeId! };
     } catch (err) {
       const message = (err as Error).message;
