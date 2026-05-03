@@ -4,6 +4,13 @@ import type { Operation, Workflow } from '@provenance/shared';
 import { DbService } from '../db/db.service';
 import { UpstreamService } from './upstream.service';
 
+export interface Generation {
+  id: string;
+  createdAt: number;
+  text: string;
+  parentIds: string[];
+}
+
 export interface LineageEntry {
   id: string;
   projectId: string;
@@ -103,5 +110,26 @@ export class CaptureService {
       case 'op:edge:remove':
         return { edgeId: op.edgeId };
     }
+  }
+
+  getGenerations(projectId: string, nodeId: string): Generation[] {
+    type Row = { id: string; parent_ids: string; snapshot: string; created_at: number };
+    const rows = this.db.db
+      .prepare(
+        `SELECT id, parent_ids, snapshot, created_at
+         FROM lineage_entries
+         WHERE project_id = ? AND node_id = ? AND op_type = 'op:node:update'
+         ORDER BY created_at ASC`,
+      )
+      .all(projectId, nodeId) as Row[];
+
+    return rows
+      .map((row) => ({
+        id: row.id,
+        createdAt: row.created_at,
+        parentIds: JSON.parse(row.parent_ids) as string[],
+        text: (JSON.parse(row.snapshot) as { data?: { text?: string } }).data?.text ?? '',
+      }))
+      .filter((g) => g.text !== '');
   }
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import type { NodeProps, NodeTypes } from 'reactflow';
 import type {
   AiModelNodeData,
@@ -8,6 +9,8 @@ import type {
   StyleModifierNodeData,
   TextPromptNodeData,
 } from '@provenance/shared';
+import { useWorkflowStore } from '@/store/useWorkflow';
+import { fetchLineage } from '@/lib/api';
 import { NodeCard } from './NodeCard';
 
 const ACCENT = '#3F3FE0';
@@ -128,15 +131,40 @@ function AiModelNode({ data }: NodeProps<AiModelNodeData>) {
   );
 }
 
-function OutputNode({ data }: NodeProps<OutputNodeData>) {
+function OutputNode({ id, data }: NodeProps<OutputNodeData>) {
+  const projectId = useWorkflowStore((s) => s.projectId);
+  const setAncestryNodeId = useWorkflowStore((s) => s.setAncestryNodeId);
+  const [genCount, setGenCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!projectId) return;
+    fetchLineage(projectId, id).then((gens) => setGenCount(gens.length));
+  }, [projectId, id]);
+
   return (
     <NodeCard
       footer={
         <>
           <span>OUTPUT</span>
-          <span title="Ancestry (wired in Bit 4)" style={{ color: ACCENT, fontWeight: 700 }}>
-            ⌥
-          </span>
+          <button
+            type="button"
+            onClick={() => setAncestryNodeId(id)}
+            title="View ancestry"
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: '0 2px',
+              color: '#39B27A',
+              fontWeight: 700,
+              fontSize: 11,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 3,
+            }}
+          >
+            ⌥{genCount !== null && genCount > 0 ? ` ${genCount}` : ''}
+          </button>
         </>
       }
       accent="#39B27A"

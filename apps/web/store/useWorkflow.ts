@@ -20,8 +20,12 @@ interface WorkflowStore {
   workflow: Workflow;
   users: PresenceUser[];
   cursors: Record<string, RemoteCursor>;
+  projectId: string;
+  ancestryNodeId: string | null;
   setWorkflow: (w: Workflow) => void;
   setUsers: (u: PresenceUser[]) => void;
+  setProjectId: (id: string) => void;
+  setAncestryNodeId: (id: string | null) => void;
   applyRemoteOp: (op: Operation) => void;
   upsertNode: (node: WorkflowNode) => void;
   removeNode: (id: string) => void;
@@ -39,8 +43,12 @@ export const useWorkflowStore = create<WorkflowStore>((set) => ({
   workflow: { nodes: [], edges: [] },
   users: [],
   cursors: {},
+  projectId: '',
+  ancestryNodeId: null,
   setWorkflow: (workflow) => set({ workflow }),
   setUsers: (users) => set({ users }),
+  setProjectId: (projectId) => set({ projectId }),
+  setAncestryNodeId: (ancestryNodeId) => set({ ancestryNodeId }),
   applyRemoteOp: (op) =>
     set((state) => {
       const w = { nodes: [...state.workflow.nodes], edges: [...state.workflow.edges] };

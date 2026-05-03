@@ -35,6 +35,7 @@ import { LeftToolbar, type ToolbarMode } from './LeftToolbar';
 import { BottomControls, UpgradePill } from './BottomControls';
 import { nodeTypes } from './NodeTypes';
 import { Cursors } from './Cursors';
+import { AncestryPanel } from './AncestryPanel';
 
 const CURSOR_THROTTLE_MS = 60;
 
@@ -87,6 +88,7 @@ function CanvasInner({ projectId }: { projectId: string }) {
   const users = useWorkflowStore((s) => s.users);
   const setWorkflow = useWorkflowStore((s) => s.setWorkflow);
   const setUsers = useWorkflowStore((s) => s.setUsers);
+  const setProjectId = useWorkflowStore((s) => s.setProjectId);
   const applyRemoteOp = useWorkflowStore((s) => s.applyRemoteOp);
   const upsertNode = useWorkflowStore((s) => s.upsertNode);
   const removeNode = useWorkflowStore((s) => s.removeNode);
@@ -102,6 +104,10 @@ function CanvasInner({ projectId }: { projectId: string }) {
   const emit = useCallback((event: Operation['type'], payload: Operation) => {
     getSocket().emit(event as any, payload as any);
   }, []);
+
+  useEffect(() => {
+    setProjectId(projectId);
+  }, [projectId, setProjectId]);
 
   useEffect(() => {
     const socket = getSocket();
@@ -291,6 +297,7 @@ function CanvasInner({ projectId }: { projectId: string }) {
       />
       <BottomControls theme={theme} setTheme={setTheme} />
       <UpgradePill />
+      <AncestryPanel projectId={projectId} />
     </div>
   );
 }
