@@ -1,42 +1,139 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useViewport } from 'reactflow';
-import { useWorkflowStore } from '@/store/useWorkflow';
-import type { WorkflowNode } from '@provenance/shared';
+import { useState } from "react";
+import { useViewport } from "reactflow";
+import { useWorkflowStore } from "@/store/useWorkflow";
+import type { GenerativeNodeData, WorkflowNode } from "@provenance/shared";
 
-const NODE_W = 260;
-const NODE_H = 140;
+const NODE_W = 340;
+const NODE_H = 236;
+const HEADER_OFFSET = 38;
 const HALO_PAD = 6;
 
 const COLOR = {
-  added: { stroke: '#39B27A', fill: 'rgba(57,178,122,0.12)' },
-  removed: { stroke: '#E5484D', fill: 'rgba(229,72,77,0.10)' },
-  changed: { stroke: '#F5A524', fill: 'rgba(245,165,36,0.12)' },
+  added: { stroke: "#39B27A", fill: "rgba(57,178,122,0.12)" },
+  removed: { stroke: "#E5484D", fill: "rgba(229,72,77,0.10)" },
+  changed: { stroke: "#F5A524", fill: "rgba(245,165,36,0.12)" },
 } as const;
 
 type HaloKind = keyof typeof COLOR;
 
-function fmtField(v: unknown): string {
-  if (v === undefined || v === null) return '∅';
-  if (typeof v === 'string') return v.length > 60 ? `${v.slice(0, 60)}…` : v;
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+export const KIND_LABEL: Record<string, string> = {
+  text: "Text",
+  image: "Image",
+  video: "Video",
+  "3d": "3D",
+  inpaint: "Inpaint",
+  upscale: "Upscale",
+  "world-labs": "World Labs",
+};
+
+const FIELD_LABEL: Record<string, string> = {
+  "data.prompt": "Prompt",
+  "data.output": "Output",
+  "data.model": "Model",
+  "data.status": "Status",
+  "data.label": "Label",
+  type: "Node Type",
+};
+
+const HIDDEN_FIELDS = new Set(["position", "data.lineageId"]);
+
+export function filterFields(fields: string[]): string[] {
+  return fields.filter((f) => !HIDDEN_FIELDS.has(f));
+}
+
+export function fieldLabel(raw: string): string {
+  return FIELD_LABEL[raw] ?? raw;
+}
+
+export function formatValue(v: unknown): string {
+  if (v === undefined || v === null) return "N/A";
+  if (typeof v === "string") {
+    if (v.length === 0) return "N/A";
+    return v.length > 60 ? `${v.slice(0, 60)}…` : v;
+  }
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (typeof v === "object" && v !== null && "provider" in v && "model" in v) {
+    const m = v as { provider: string; model: string };
+    return `${m.provider} / ${m.model}`;
+  }
   try {
     const s = JSON.stringify(v);
     return s.length > 60 ? `${s.slice(0, 60)}…` : s;
   } catch {
-    return '<obj>';
+    return "N/A";
   }
+}
+
+export function readField(node: WorkflowNode, field: string): unknown {
+  if (field === "position")
+    return `${Math.round(node.position.x)}, ${Math.round(node.position.y)}`;
+  if (field === "type") return KIND_LABEL[node.type ?? ""] ?? node.type;
+  if (field.startsWith("data.")) {
+    const key = field.slice("data.".length);
+    return (node.data as unknown as Record<string, unknown>)[key];
+  }
+  return undefined;
+}
+
+function HaloInfoBlock({
+  typeLabel,
+  prompt,
+  color,
+}: {
+  typeLabel: string;
+  prompt?: string;
+  color: string;
+}) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 12,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "center",
+        gap: 6,
+        color,
+        fontFamily:
+          'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+      }}
+    >
+      <div style={{ fontSize: 12, fontWeight: 700 }}>{typeLabel}</div>
+      {prompt && (
+        <div
+          style={{
+            fontSize: 11,
+            color: "rgba(15,18,30,0.5)",
+            textAlign: "center",
+            lineHeight: 1.4,
+            maxWidth: "90%",
+            overflow: "hidden",
+            display: "-webkit-box",
+            WebkitLineClamp: 3,
+            WebkitBoxOrient: "vertical",
+          }}
+        >
+          &ldquo;{prompt.length > 80 ? `${prompt.slice(0, 80)}…` : prompt}
+          &rdquo;
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function CompareOverlay() {
   const before = useWorkflowStore((s) => s.compareBefore);
   const after = useWorkflowStore((s) => s.compareAfter);
   const diff = useWorkflowStore((s) => s.compareDiff);
+  const viewSide = useWorkflowStore((s) => s.compareViewSide);
   const { x: vx, y: vy, zoom } = useViewport();
   const [hoverId, setHoverId] = useState<string | null>(null);
 
   if (!diff || !before || !after) return null;
+  if (viewSide !== "diff") return null;
 
   const beforeMap = new Map(before.nodes.map((n) => [n.id, n]));
   const afterMap = new Map(after.nodes.map((n) => [n.id, n]));
@@ -44,14 +141,14 @@ export function CompareOverlay() {
   const halos: Array<{ id: string; kind: HaloKind; node: WorkflowNode }> = [];
   for (const id of diff.nodes.added) {
     const n = afterMap.get(id);
-    if (n) halos.push({ id, kind: 'added', node: n });
+    if (n) halos.push({ id, kind: "added", node: n });
   }
   for (const id of diff.nodes.removed) {
     const n = beforeMap.get(id);
-    if (n) halos.push({ id, kind: 'removed', node: n });
+    if (n) halos.push({ id, kind: "removed", node: n });
   }
   for (const ch of diff.nodes.changed) {
-    halos.push({ id: ch.id, kind: 'changed', node: ch.after });
+    halos.push({ id: ch.id, kind: "changed", node: ch.after });
   }
 
   const flowToScreen = (fx: number, fy: number) => ({
@@ -62,10 +159,10 @@ export function CompareOverlay() {
   return (
     <div
       style={{
-        position: 'absolute',
+        position: "absolute",
         inset: 0,
         zIndex: 25,
-        pointerEvents: 'none',
+        pointerEvents: "none",
       }}
     >
       {halos.map(({ id, kind, node }) => {
@@ -73,14 +170,19 @@ export function CompareOverlay() {
         const w = NODE_W * zoom + HALO_PAD * 2;
         const h = NODE_H * zoom + HALO_PAD * 2;
         const left = x - HALO_PAD;
-        const top = y - HALO_PAD;
+        const top = y + HEADER_OFFSET * zoom - HALO_PAD;
         const c = COLOR[kind];
         const changed = diff.nodes.changed.find((ch) => ch.id === id);
+        const nodeData = node.data as unknown as GenerativeNodeData;
+        const typeLabel = KIND_LABEL[node.type ?? ""] ?? node.type ?? "Node";
+        const visibleFields = changed
+          ? filterFields(changed.changedFields)
+          : [];
         return (
           <div
             key={`${kind}-${id}`}
             style={{
-              position: 'absolute',
+              position: "absolute",
               left,
               top,
               width: w,
@@ -89,43 +191,50 @@ export function CompareOverlay() {
               background: c.fill,
               borderRadius: 22,
               boxShadow: `0 0 0 4px ${c.fill}`,
-              pointerEvents: 'auto',
+              pointerEvents: "auto",
             }}
             onMouseEnter={() => setHoverId(id)}
             onMouseLeave={() => setHoverId((cur) => (cur === id ? null : cur))}
           >
             <div
               style={{
-                position: 'absolute',
+                position: "absolute",
                 top: -10,
                 left: 10,
                 background: c.stroke,
-                color: '#fff',
+                color: "#fff",
                 fontSize: 10,
                 fontWeight: 700,
-                padding: '2px 8px',
+                padding: "2px 8px",
                 borderRadius: 999,
-                textTransform: 'uppercase',
+                textTransform: "uppercase",
                 letterSpacing: 0.5,
               }}
             >
               {kind}
             </div>
-            {hoverId === id && changed && changed.changedFields.length > 0 && (
+            {(kind === "removed" || kind === "added") && (
+              <HaloInfoBlock
+                typeLabel={typeLabel}
+                prompt={nodeData.prompt}
+                color={kind === "removed" ? "#E5484D" : "#39B27A"}
+              />
+            )}
+            {hoverId === id && changed && visibleFields.length > 0 && (
               <div
                 style={{
-                  position: 'absolute',
+                  position: "absolute",
                   bottom: h + 8,
                   left: 0,
                   minWidth: 280,
-                  background: '#fff',
-                  border: '1px solid rgba(15,18,30,0.10)',
+                  background: "#fff",
+                  border: "1px solid rgba(15,18,30,0.10)",
                   borderRadius: 12,
-                  boxShadow: '0 8px 24px rgba(15,18,30,0.14)',
+                  boxShadow: "0 8px 24px rgba(15,18,30,0.14)",
                   padding: 12,
                   fontSize: 11,
-                  color: '#0f121e',
-                  pointerEvents: 'auto',
+                  color: "#0f121e",
+                  pointerEvents: "auto",
                   zIndex: 30,
                   fontFamily:
                     'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
@@ -136,29 +245,36 @@ export function CompareOverlay() {
                     fontSize: 10,
                     fontWeight: 700,
                     letterSpacing: 0.6,
-                    textTransform: 'uppercase',
-                    color: 'rgba(15,18,30,0.5)',
+                    textTransform: "uppercase",
+                    color: "rgba(15,18,30,0.5)",
                     marginBottom: 6,
                   }}
                 >
-                  Changes · {changed.changedFields.length}
+                  Changes · {visibleFields.length}
                 </div>
                 <div
                   style={{
-                    display: 'grid',
-                    gridTemplateColumns: '90px 1fr 1fr',
+                    display: "grid",
+                    gridTemplateColumns: "70px 1fr 1fr",
                     rowGap: 6,
                     columnGap: 8,
                   }}
                 >
-                  <div style={{ color: 'rgba(15,18,30,0.5)' }}></div>
-                  <div style={{ fontWeight: 700, color: '#E5484D' }}>before</div>
-                  <div style={{ fontWeight: 700, color: '#39B27A' }}>after</div>
-                  {changed.changedFields.map((f) => {
+                  <div style={{ color: "rgba(15,18,30,0.5)" }}></div>
+                  <div style={{ fontWeight: 700, color: "#E5484D" }}>
+                    Before
+                  </div>
+                  <div style={{ fontWeight: 700, color: "#39B27A" }}>After</div>
+                  {visibleFields.map((f) => {
                     const beforeVal = readField(changed.before, f);
                     const afterVal = readField(changed.after, f);
                     return (
-                      <FragmentRow key={f} field={f} before={beforeVal} after={afterVal} />
+                      <FragmentRow
+                        key={f}
+                        field={f}
+                        before={beforeVal}
+                        after={afterVal}
+                      />
                     );
                   })}
                 </div>
@@ -169,16 +285,6 @@ export function CompareOverlay() {
       })}
     </div>
   );
-}
-
-function readField(node: WorkflowNode, field: string): unknown {
-  if (field === 'position') return `${Math.round(node.position.x)}, ${Math.round(node.position.y)}`;
-  if (field === 'type') return node.type;
-  if (field.startsWith('data.')) {
-    const key = field.slice('data.'.length);
-    return (node.data as Record<string, unknown>)[key];
-  }
-  return undefined;
 }
 
 function FragmentRow({
@@ -192,9 +298,13 @@ function FragmentRow({
 }) {
   return (
     <>
-      <div style={{ color: 'rgba(15,18,30,0.55)', fontFamily: 'monospace' }}>{field}</div>
-      <div style={{ wordBreak: 'break-word' }}>{fmtField(before)}</div>
-      <div style={{ wordBreak: 'break-word' }}>{fmtField(after)}</div>
+      <div
+        style={{ color: "rgba(15,18,30,0.55)", fontWeight: 600, fontSize: 10 }}
+      >
+        {fieldLabel(field)}
+      </div>
+      <div style={{ wordBreak: "break-word" }}>{formatValue(before)}</div>
+      <div style={{ wordBreak: "break-word" }}>{formatValue(after)}</div>
     </>
   );
 }

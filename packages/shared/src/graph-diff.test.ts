@@ -2,25 +2,18 @@ import { describe, it, expect } from 'vitest';
 import { diffGraphs } from './graph-diff';
 import type { Workflow, WorkflowNode } from './workflow';
 
-const text = (id: string, x = 0, y = 0, t = 'a'): WorkflowNode => ({
+const node = (id: string, x = 0, y = 0, prompt = 'a'): WorkflowNode => ({
   id,
-  type: 'text-prompt',
+  type: 'text',
   position: { x, y },
-  data: { text: t },
-});
-
-const output = (id: string, t = ''): WorkflowNode => ({
-  id,
-  type: 'output',
-  position: { x: 0, y: 0 },
-  data: { text: t },
+  data: { prompt, status: 'idle' },
 });
 
 const wf = (nodes: WorkflowNode[], edges: Workflow['edges'] = []): Workflow => ({ nodes, edges });
 
 describe('diffGraphs', () => {
   it('reports no changes for identical workflows', () => {
-    const w = wf([text('a'), output('b')]);
+    const w = wf([node('a'), node('b')]);
     const d = diffGraphs(w, w);
     expect(d.nodes.added).toEqual([]);
     expect(d.nodes.removed).toEqual([]);
@@ -30,47 +23,47 @@ describe('diffGraphs', () => {
   });
 
   it('detects added node', () => {
-    const before = wf([text('a')]);
-    const after = wf([text('a'), text('b')]);
+    const before = wf([node('a')]);
+    const after = wf([node('a'), node('b')]);
     const d = diffGraphs(before, after);
     expect(d.nodes.added).toEqual(['b']);
     expect(d.nodes.removed).toEqual([]);
   });
 
   it('detects removed node', () => {
-    const before = wf([text('a'), text('b')]);
-    const after = wf([text('a')]);
+    const before = wf([node('a'), node('b')]);
+    const after = wf([node('a')]);
     const d = diffGraphs(before, after);
     expect(d.nodes.removed).toEqual(['b']);
     expect(d.nodes.added).toEqual([]);
   });
 
   it('detects position-only change', () => {
-    const before = wf([text('a', 0, 0)]);
-    const after = wf([text('a', 100, 0)]);
+    const before = wf([node('a', 0, 0)]);
+    const after = wf([node('a', 100, 0)]);
     const d = diffGraphs(before, after);
     expect(d.nodes.changed).toHaveLength(1);
     expect(d.nodes.changed[0]!.changedFields).toEqual(['position']);
   });
 
-  it('detects data.text change', () => {
-    const before = wf([output('o', 'first')]);
-    const after = wf([output('o', 'second')]);
+  it('detects data.prompt change', () => {
+    const before = wf([node('o', 0, 0, 'first')]);
+    const after = wf([node('o', 0, 0, 'second')]);
     const d = diffGraphs(before, after);
     expect(d.nodes.changed).toHaveLength(1);
-    expect(d.nodes.changed[0]!.changedFields).toEqual(['data.text']);
+    expect(d.nodes.changed[0]!.changedFields).toEqual(['data.prompt']);
   });
 
   it('detects multiple changed fields on one node', () => {
-    const before = wf([text('a', 0, 0, 'old')]);
-    const after = wf([text('a', 50, 50, 'new')]);
+    const before = wf([node('a', 0, 0, 'old')]);
+    const after = wf([node('a', 50, 50, 'new')]);
     const d = diffGraphs(before, after);
-    expect(d.nodes.changed[0]!.changedFields).toEqual(['position', 'data.text']);
+    expect(d.nodes.changed[0]!.changedFields).toEqual(['position', 'data.prompt']);
   });
 
   it('detects added/removed edges by id', () => {
-    const before = wf([text('a'), text('b')], [{ id: 'e1', source: 'a', target: 'b' }]);
-    const after = wf([text('a'), text('b')], [{ id: 'e2', source: 'a', target: 'b' }]);
+    const before = wf([node('a'), node('b')], [{ id: 'e1', source: 'a', target: 'b' }]);
+    const after = wf([node('a'), node('b')], [{ id: 'e2', source: 'a', target: 'b' }]);
     const d = diffGraphs(before, after);
     expect(d.edges.added).toEqual(['e2']);
     expect(d.edges.removed).toEqual(['e1']);
@@ -78,11 +71,10 @@ describe('diffGraphs', () => {
 
   it('does not flag changes for unknown data keys outside the kind whitelist', () => {
     const before: Workflow = wf([
-      { id: 'a', type: 'text-prompt', position: { x: 0, y: 0 }, data: { text: 't' } },
+      { id: 'a', type: 'text', position: { x: 0, y: 0 }, data: { prompt: 't', status: 'idle' } },
     ]);
-    // Add a stray field that isn't part of TextPromptNodeData; should be ignored.
     const after: Workflow = wf([
-      { id: 'a', type: 'text-prompt', position: { x: 0, y: 0 }, data: { text: 't', stray: 1 } as never },
+      { id: 'a', type: 'text', position: { x: 0, y: 0 }, data: { prompt: 't', status: 'idle', stray: 1 } as never },
     ]);
     const d = diffGraphs(before, after);
     expect(d.nodes.changed).toEqual([]);

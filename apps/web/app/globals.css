@@ -4,7 +4,7 @@ body,
   margin: 0;
   padding: 0;
   height: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: #0e0f12;
   color: #e6e8eb;
 }
@@ -16,10 +16,17 @@ body,
 /* Remove React Flow's thick dark selected-node border */
 .react-flow__node.selected > div {
   outline: none !important;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.45), 0 6px 18px rgba(15, 18, 30, 0.06) !important;
+  box-shadow:
+    0 0 0 2px rgba(99, 102, 241, 0.45),
+    0 6px 18px rgba(15, 18, 30, 0.06) !important;
   border-radius: 18px;
 }
 .react-flow__node.selected {
   outline: none !important;
   box-shadow: none !important;
+}
+.react-flow__pane,
+.react-flow__node,
+.react-flow__edge {
+  cursor: default !important;
 }

@@ -1,15 +1,16 @@
-'use client';
+"use client";
 
-import { useEffect, useRef, useState } from 'react';
-import type { NodeKind } from '@provenance/shared';
+import { useEffect, useRef, useState } from "react";
+import type { NodeKind } from "@provenance/shared";
 import {
-  CubeIcon,
-  EraserIcon,
-  FrameIcon,
-  PencilIcon,
-  SparkleIcon,
   TextIcon,
-} from './icons';
+  FrameIcon,
+  VideoIcon,
+  ThreeDIcon,
+  InpaintIcon,
+  UpscaleIcon,
+  WorldLabsIcon,
+} from "./icons";
 
 interface Row {
   kind: NodeKind;
@@ -18,14 +19,28 @@ interface Row {
 }
 
 const ROWS: Row[] = [
-  { kind: 'text-prompt', label: 'Text Prompt', icon: <TextIcon width={16} height={16} /> },
-  { kind: 'image-reference', label: 'Image Reference', icon: <FrameIcon width={16} height={16} /> },
-  { kind: 'ai-model', label: 'AI Model', icon: <SparkleIcon width={16} height={16} /> },
-  { kind: 'style-modifier', label: 'Style Modifier', icon: <PencilIcon width={16} height={16} /> },
-  { kind: 'output', label: 'Output', icon: <CubeIcon width={16} height={16} /> },
+  { kind: "text", label: "Text", icon: <TextIcon width={16} height={16} /> },
+  { kind: "image", label: "Image", icon: <FrameIcon width={16} height={16} /> },
+  { kind: "video", label: "Video", icon: <VideoIcon width={16} height={16} /> },
+  { kind: "3d", label: "3D", icon: <ThreeDIcon width={16} height={16} /> },
+  {
+    kind: "inpaint",
+    label: "Inpaint",
+    icon: <InpaintIcon width={16} height={16} />,
+  },
+  {
+    kind: "upscale",
+    label: "Upscale",
+    icon: <UpscaleIcon width={16} height={16} />,
+  },
+  {
+    kind: "world-labs",
+    label: "World Labs",
+    icon: <WorldLabsIcon width={16} height={16} />,
+  },
 ];
 
-const ACCENT = '#3F3FE0';
+const ACCENT = "#3F3FE0";
 
 export function AddNodePopover({
   open,
@@ -38,7 +53,7 @@ export function AddNodePopover({
   onClose: () => void;
   onPick: (kind: NodeKind) => void;
   anchorRef: React.RefObject<HTMLElement | null>;
-  theme: 'light' | 'dark';
+  theme: "light" | "dark";
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<NodeKind | null>(null);
@@ -52,46 +67,48 @@ export function AddNodePopover({
       onClose();
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
+      if (e.key === "Escape") onClose();
     }
-    document.addEventListener('mousedown', onClick);
-    document.addEventListener('keydown', onKey);
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
     return () => {
-      document.removeEventListener('mousedown', onClick);
-      document.removeEventListener('keydown', onKey);
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
     };
   }, [open, onClose, anchorRef]);
 
   if (!open) return null;
 
-  const isDark = theme === 'dark';
-  const panelBg = isDark ? 'rgba(20, 22, 32, 0.92)' : '#fff';
-  const panelBorder = isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(15,18,30,0.08)';
+  const isDark = theme === "dark";
+  const panelBg = isDark ? "rgba(20, 22, 32, 0.92)" : "#fff";
+  const panelBorder = isDark
+    ? "1px solid rgba(255,255,255,0.08)"
+    : "1px solid rgba(15,18,30,0.08)";
   const panelShadow = isDark
-    ? '0 18px 40px rgba(0, 0, 0, 0.45)'
-    : '0 12px 32px rgba(15, 18, 30, 0.10)';
-  const headerColor = isDark ? 'rgba(255,255,255,0.55)' : 'rgba(15,18,30,0.55)';
-  const labelColor = isDark ? 'rgba(255,255,255,0.85)' : '#0f121e';
-  const tileBg = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(15,18,30,0.04)';
-  const tileFg = isDark ? 'rgba(255,255,255,0.85)' : 'rgba(15,18,30,0.7)';
+    ? "0 18px 40px rgba(0, 0, 0, 0.45)"
+    : "0 12px 32px rgba(15, 18, 30, 0.10)";
+  const headerColor = isDark ? "rgba(255,255,255,0.55)" : "rgba(15,18,30,0.55)";
+  const labelColor = isDark ? "rgba(255,255,255,0.85)" : "#0f121e";
+  const tileBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(15,18,30,0.04)";
+  const tileFg = isDark ? "rgba(255,255,255,0.85)" : "rgba(15,18,30,0.7)";
 
   return (
     <div
       ref={ref}
       style={{
-        position: 'absolute',
+        position: "absolute",
         // Anchor to the right of the toolbar pill (toolbar starts at left:18 with width ~44)
         left: 70,
-        top: '50%',
-        transform: 'translateY(-30%)',
-        width: 240,
+        top: "50%",
+        transform: "translateY(-30%)",
+        width: 180,
         background: panelBg,
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)',
+        backdropFilter: "blur(8px)",
+        WebkitBackdropFilter: "blur(8px)",
         border: panelBorder,
-        borderRadius: 14,
+        borderRadius: 12,
         boxShadow: panelShadow,
-        padding: 10,
+        padding: 6,
         zIndex: 40,
         fontFamily:
           'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
@@ -99,8 +116,8 @@ export function AddNodePopover({
     >
       <div
         style={{
-          padding: '4px 6px 8px',
-          fontSize: 12,
+          padding: "4px 8px 6px",
+          fontSize: 11,
           fontWeight: 600,
           color: headerColor,
           letterSpacing: 0.2,
@@ -121,31 +138,33 @@ export function AddNodePopover({
               onClose();
             }}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              width: '100%',
-              padding: '8px 8px',
-              background: 'transparent',
-              border: active ? `1.5px solid ${ACCENT}` : '1.5px solid transparent',
-              borderRadius: 10,
-              cursor: 'pointer',
-              fontFamily: 'inherit',
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              width: "100%",
+              padding: "6px 8px",
+              background: "transparent",
+              border: active
+                ? `1.5px solid ${ACCENT}`
+                : "1.5px solid transparent",
+              borderRadius: 8,
+              cursor: "pointer",
+              fontFamily: "inherit",
               color: labelColor,
-              fontSize: 13,
-              textAlign: 'left',
+              fontSize: 12,
+              textAlign: "left",
             }}
           >
             <span
               style={{
-                display: 'inline-flex',
+                display: "inline-flex",
                 width: 28,
                 height: 28,
-                borderRadius: 8,
+                borderRadius: 7,
                 background: tileBg,
                 color: tileFg,
-                alignItems: 'center',
-                justifyContent: 'center',
+                alignItems: "center",
+                justifyContent: "center",
                 flexShrink: 0,
               }}
             >

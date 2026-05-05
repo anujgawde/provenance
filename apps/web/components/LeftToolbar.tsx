@@ -46,19 +46,19 @@ export function LeftToolbar({
 
   const drawItems = useMemo(
     () => [
-      { key: 'pencil', icon: <PencilIcon width={18} height={18} />, label: 'Pencil' },
-      { key: 'eraser', icon: <EraserIcon width={18} height={18} />, label: 'Eraser' },
-      { key: 'cube', icon: <CubeIcon width={18} height={18} />, label: '3D' },
-      { key: 'text', icon: <TextIcon width={18} height={18} />, label: 'Text' },
-      { key: 'frame', icon: <FrameIcon width={18} height={18} />, label: 'Frame' },
+      { key: 'pencil', icon: <PencilIcon width={22} height={22} />, label: 'Pencil' },
+      { key: 'eraser', icon: <EraserIcon width={22} height={22} />, label: 'Eraser' },
+      { key: 'cube', icon: <CubeIcon width={22} height={22} />, label: '3D' },
+      { key: 'text', icon: <TextIcon width={22} height={22} />, label: 'Text' },
+      { key: 'frame', icon: <FrameIcon width={22} height={22} />, label: 'Frame' },
     ],
     [],
   );
   const viewItems = useMemo(
     () => [
-      { key: 'comment', icon: <ChatIcon width={18} height={18} />, label: 'Comment' },
-      { key: 'sticker', icon: <StickerIcon width={18} height={18} />, label: 'Sticker' },
-      { key: 'hide', icon: <EyeOffIcon width={18} height={18} />, label: 'Hide' },
+      { key: 'comment', icon: <ChatIcon width={22} height={22} />, label: 'Comment' },
+      { key: 'sticker', icon: <StickerIcon width={22} height={22} />, label: 'Sticker' },
+      { key: 'hide', icon: <EyeOffIcon width={22} height={22} />, label: 'Hide' },
     ],
     [],
   );
@@ -85,7 +85,7 @@ export function LeftToolbar({
             setAddOpen(false);
           }}
           title="Select"
-          icon={<XLogoIcon width={18} height={18} />}
+          icon={<XLogoIcon width={22} height={22} />}
         />
         <ToolButton
           active={mode === 'draw'}
@@ -94,7 +94,7 @@ export function LeftToolbar({
             setAddOpen(false);
           }}
           title="Draw"
-          icon={<ScribbleIcon width={18} height={18} />}
+          icon={<ScribbleIcon width={22} height={22} />}
         />
         <ToolButton
           active={mode === 'view'}
@@ -103,7 +103,7 @@ export function LeftToolbar({
             setAddOpen(false);
           }}
           title="View"
-          icon={<EyeIcon width={18} height={18} />}
+          icon={<EyeIcon width={22} height={22} />}
         />
       </Pill>
       <Pill>
@@ -114,11 +114,11 @@ export function LeftToolbar({
               active={addOpen}
               onClick={() => setAddOpen((o) => !o)}
               title="Add node"
-              icon={<PlusIcon width={18} height={18} />}
+              icon={<PlusIcon width={22} height={22} />}
             />
-            <ToolButton title="Tools" icon={<WrenchIcon width={18} height={18} />} />
-            <ToolButton title="Route" icon={<RouteIcon width={18} height={18} />} />
-            <ToolButton title="History" icon={<HistoryIcon width={18} height={18} />} />
+            <ToolButton title="Tools" icon={<WrenchIcon width={22} height={22} />} />
+            <ToolButton title="Route" icon={<RouteIcon width={22} height={22} />} />
+            <ToolButton title="History" icon={<HistoryIcon width={22} height={22} />} />
           </>
         )}
         {mode === 'draw' &&
@@ -128,12 +128,12 @@ export function LeftToolbar({
         <div
           aria-hidden
           style={{
-            width: 32,
-            height: 32,
+            width: 38,
+            height: 38,
             borderRadius: 999,
             background: userColor,
             color: '#fff',
-            fontSize: 12,
+            fontSize: 14,
             fontWeight: 700,
             display: 'flex',
             alignItems: 'center',
@@ -162,8 +162,8 @@ function Pill({ children }: { children: React.ReactNode }) {
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        gap: 4,
-        padding: 6,
+        gap: 6,
+        padding: 8,
         background: 'rgba(232, 234, 240, 0.85)',
         borderRadius: 999,
         boxShadow: '0 1px 2px rgba(15,18,30,0.04)',
@@ -190,8 +190,8 @@ const ToolButton = forwardRef<
       onClick={onClick}
       title={title}
       style={{
-        width: 32,
-        height: 32,
+        width: 38,
+        height: 38,
         borderRadius: 999,
         border: 'none',
         background: active ? ACCENT_BG : 'transparent',

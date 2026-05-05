@@ -244,3 +244,43 @@ export const HelpIcon = (p: SVGProps<SVGSVGElement>) => (
     <path d="M12 17v.01" />
   </svg>
 );
+
+export const VideoIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="3" y="5" width="14" height="14" rx="2" />
+    <path d="M17 9l4-2v10l-4-2" />
+  </svg>
+);
+
+export const ThreeDIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M12 3l9 5v8l-9 5-9-5V8z" />
+    <path d="M3 8l9 5 9-5" />
+    <path d="M12 13v8" />
+  </svg>
+);
+
+export const InpaintIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M12 3a9 9 0 1 0 0 18" />
+    <path d="M12 3a9 9 0 0 1 0 18" strokeDasharray="4 3" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
+export const UpscaleIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="4" y="4" width="16" height="16" rx="2" />
+    <path d="M15 4v7h5" />
+    <path d="M4 15h7v5" />
+  </svg>
+);
+
+export const WorldLabsIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M3 12h18" />
+    <path d="M12 3a15 15 0 0 1 4 9 15 15 0 0 1-4 9" />
+    <path d="M12 3a15 15 0 0 0-4 9 15 15 0 0 0 4 9" />
+  </svg>
+);

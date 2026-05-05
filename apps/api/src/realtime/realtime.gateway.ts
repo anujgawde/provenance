@@ -153,12 +153,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       this.logger.warn(`capture failed for ${op.type}: ${(err as Error).message}`);
     }
     this.applyOp(project.workflow, op);
-    // Bit 5: attach full post-op workflow snapshot to output-node updates.
-    // We snapshot every update on output nodes (cheap; workflow is small) so
-    // every row the ancestry panel lists has a snapshot graph-diff can use.
+    // Attach full post-op workflow snapshot to node updates with lineage.
+    // We snapshot every update (cheap; workflow is small) so every row
+    // the ancestry panel lists has a snapshot graph-diff can use.
     if (entryId && op.type === 'op:node:update') {
       const node = project.workflow.nodes.find((n) => n.id === op.nodeId);
-      if (node?.type === 'output') {
+      if (node) {
         try {
           this.capture.attachWorkflowSnapshot(entryId, project.workflow);
         } catch (err) {
@@ -235,47 +235,14 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (!meta) return { ok: false as const, error: 'not in a session' };
 
     const project = this.getProject(meta.projectId);
-    const aiNode = project.workflow.nodes.find((n) => n.id === payload.aiNodeId);
-    if (!aiNode || aiNode.type !== 'ai-model') {
-      return { ok: false as const, error: 'AI model node not found' };
+    const genNode = project.workflow.nodes.find((n) => n.id === payload.aiNodeId);
+    if (!genNode) {
+      return { ok: false as const, error: 'Node not found' };
     }
 
-    // Find the downstream output node (target of an edge from this AI node)
-    const outputEdge = project.workflow.edges.find((e) => e.source === payload.aiNodeId);
-    let outputNode = outputEdge
-      ? project.workflow.nodes.find((n) => n.id === outputEdge.target && n.type === 'output')
-      : null;
+    const genData = genNode.data as import('@provenance/shared').GenerativeNodeData;
 
-    // If no connected output node, create one
-    const { randomUUID } = await import('node:crypto');
-    let outputNodeId = outputNode?.id ?? null;
-    if (!outputNode) {
-      outputNodeId = randomUUID();
-      const newOutput: import('@provenance/shared').WorkflowNode = {
-        id: outputNodeId!,
-        type: 'output',
-        position: { x: aiNode.position.x + 340, y: aiNode.position.y },
-        data: { text: '' },
-      };
-      project.workflow.nodes.push(newOutput);
-      const newEdge: import('@provenance/shared').WorkflowEdge = {
-        id: randomUUID(),
-        source: payload.aiNodeId,
-        target: outputNodeId!,
-        sourceHandle: null,
-        targetHandle: null,
-      };
-      project.workflow.edges.push(newEdge);
-      // Broadcast the new node + edge
-      const addNodeOp = { type: 'op:node:add' as const, node: newOutput, seq: ++project.seq };
-      const addEdgeOp = { type: 'op:edge:add' as const, edge: newEdge, seq: ++project.seq };
-      this.server.to(room(meta.projectId)).emit('op:node:add', addNodeOp);
-      this.server.to(room(meta.projectId)).emit('op:edge:add', addEdgeOp);
-      outputNode = newOutput;
-    }
-
-    // Set AI node status to 'generating'
-    const aiData = aiNode.data as import('@provenance/shared').AiModelNodeData;
+    // Set node status to 'generating'
     const statusOp: Extract<import('@provenance/shared').Operation, { type: 'op:node:update' }> = {
       type: 'op:node:update',
       nodeId: payload.aiNodeId,
@@ -285,11 +252,11 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     this.server.to(room(meta.projectId)).emit('op:node:update', { ...statusOp, seq: ++project.seq });
 
     // Capture lineage (upstream subgraph BEFORE generation)
-    const model: import('@provenance/shared').AiModelDescriptor = aiData.model ?? { provider: 'mock', model: 'mock-v1' };
+    const model: import('@provenance/shared').AiModelDescriptor = genData.model ?? { provider: 'mock', model: 'mock-v1' };
     const lineage = this.lineageService.capture({
       projectId: meta.projectId,
       aiNodeId: payload.aiNodeId,
-      outputNodeId: outputNodeId,
+      outputNodeId: payload.aiNodeId,
       generatedBy: meta.userId,
       model,
       workflow: project.workflow,
@@ -305,33 +272,24 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       const output = await this.ai.generate(model, payload.input, upstreamNodes);
       this.lineageService.attachOutput(lineage.id, output);
 
-      // Write generated text to the output node
+      // Write generated output back to the same node and set status idle
       const updateOp: Extract<import('@provenance/shared').Operation, { type: 'op:node:update' }> = {
         type: 'op:node:update',
-        nodeId: outputNodeId!,
-        changes: { data: { text: output.text, lineageId: lineage.id } },
+        nodeId: payload.aiNodeId,
+        changes: { data: { output: output.text, lineageId: lineage.id, status: 'idle' } },
       };
       this.applyOp(project.workflow, updateOp);
       this.server.to(room(meta.projectId)).emit('op:node:update', { ...updateOp, seq: ++project.seq });
-
-      // Set AI node status back to 'idle'
-      const idleOp: Extract<import('@provenance/shared').Operation, { type: 'op:node:update' }> = {
-        type: 'op:node:update',
-        nodeId: payload.aiNodeId,
-        changes: { data: { status: 'idle' } },
-      };
-      this.applyOp(project.workflow, idleOp);
-      this.server.to(room(meta.projectId)).emit('op:node:update', { ...idleOp, seq: ++project.seq });
 
       // Broadcast lineage:captured
       lineage.generationOutput = output;
       this.server.to(room(meta.projectId)).emit('lineage:captured', {
         lineage,
-        outputNode: project.workflow.nodes.find((n) => n.id === outputNodeId)!,
+        outputNode: project.workflow.nodes.find((n) => n.id === payload.aiNodeId)!,
       });
 
       this.persistence.save(meta.projectId, project.workflow, project.seq);
-      return { ok: true as const, lineageId: lineage.id, outputNodeId: outputNodeId! };
+      return { ok: true as const, lineageId: lineage.id, outputNodeId: payload.aiNodeId };
     } catch (err) {
       const message = (err as Error).message;
       this.lineageService.attachError(lineage.id, message);
@@ -348,5 +306,28 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
       return { ok: false as const, error: message };
     }
+  }
+
+  @SubscribeMessage('lineage:restore')
+  handleRestore(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { lineageId: string },
+  ) {
+    const meta = this.socketProject.get(client.id);
+    if (!meta) return;
+    const project = this.getProject(meta.projectId);
+    const lineage = this.lineageService.getById(meta.projectId, payload.lineageId);
+    if (!lineage) {
+      this.logger.warn(`lineage:restore — record not found: ${payload.lineageId}`);
+      return;
+    }
+    project.workflow = lineage.workflowSubgraph;
+    project.seq += 1;
+    this.persistence.save(meta.projectId, project.workflow, project.seq);
+    this.server.to(room(meta.projectId)).emit('lineage:restore', {
+      lineageId: payload.lineageId,
+      workflow: project.workflow,
+    });
+    this.logger.log(`lineage:restore — restored ${payload.lineageId} for ${meta.projectId}`);
   }
 }

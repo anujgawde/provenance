@@ -1,11 +1,13 @@
 import type { AiModelDescriptor } from './ai';
 
 export type NodeKind =
-  | 'text-prompt'
-  | 'image-reference'
-  | 'ai-model'
-  | 'style-modifier'
-  | 'output';
+  | 'text'
+  | 'image'
+  | 'video'
+  | '3d'
+  | 'inpaint'
+  | 'upscale'
+  | 'world-labs';
 
 export interface XYPosition {
   x: number;
@@ -16,37 +18,22 @@ export interface BaseNodeData {
   label?: string;
 }
 
-export interface TextPromptNodeData extends BaseNodeData {
-  text: string;
-}
-
-export interface ImageReferenceNodeData extends BaseNodeData {
-  url: string;
-}
-
-export interface AiModelNodeData extends BaseNodeData {
-  model: AiModelDescriptor;
-  systemPrompt?: string;
-  temperature?: number;
-  status?: 'idle' | 'generating' | 'error';
-}
-
-export interface StyleModifierNodeData extends BaseNodeData {
-  style: string;
-  weight?: number;
-}
-
-export interface OutputNodeData extends BaseNodeData {
-  text?: string;
+export interface GenerativeNodeData extends BaseNodeData {
+  prompt: string;
+  model?: AiModelDescriptor;
+  status: 'idle' | 'generating' | 'error';
   lineageId?: string;
+  output?: string;
 }
 
 export type NodeDataByKind = {
-  'text-prompt': TextPromptNodeData;
-  'image-reference': ImageReferenceNodeData;
-  'ai-model': AiModelNodeData;
-  'style-modifier': StyleModifierNodeData;
-  output: OutputNodeData;
+  text: GenerativeNodeData;
+  image: GenerativeNodeData;
+  video: GenerativeNodeData;
+  '3d': GenerativeNodeData;
+  inpaint: GenerativeNodeData;
+  upscale: GenerativeNodeData;
+  'world-labs': GenerativeNodeData;
 };
 
 export interface WorkflowNode<K extends NodeKind = NodeKind> {

@@ -23,16 +23,11 @@ export class AiService {
 
     const promptSnippet = input.prompt.slice(0, 80);
     const nodeContext = upstreamNodes
-      .filter((n) => n.type === 'text-prompt')
-      .map((n) => (n.data as { text?: string }).text ?? '')
+      .map((n) => (n.data as { prompt?: string }).prompt ?? '')
       .filter(Boolean)
       .join(' + ');
 
-    const styleContext = upstreamNodes
-      .filter((n) => n.type === 'style-modifier')
-      .map((n) => (n.data as { style?: string }).style ?? '')
-      .filter(Boolean)
-      .join(', ');
+    const styleContext = '';
 
     const parts = [
       `[Mock generation]`,

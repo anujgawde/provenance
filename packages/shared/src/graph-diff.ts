@@ -19,12 +19,16 @@ export interface GraphDiff {
   };
 }
 
+const GENERATIVE_DATA_KEYS: readonly string[] = ['label', 'prompt', 'model', 'status', 'lineageId', 'output'];
+
 const DATA_KEYS_BY_KIND: Record<NodeKind, readonly string[]> = {
-  'text-prompt': ['label', 'text'],
-  'image-reference': ['label', 'url'],
-  'ai-model': ['label', 'model', 'systemPrompt', 'temperature', 'status'],
-  'style-modifier': ['label', 'style', 'weight'],
-  output: ['label', 'text', 'lineageId'],
+  text: GENERATIVE_DATA_KEYS,
+  image: GENERATIVE_DATA_KEYS,
+  video: GENERATIVE_DATA_KEYS,
+  '3d': GENERATIVE_DATA_KEYS,
+  inpaint: GENERATIVE_DATA_KEYS,
+  upscale: GENERATIVE_DATA_KEYS,
+  'world-labs': GENERATIVE_DATA_KEYS,
 };
 
 function deepEqual(a: unknown, b: unknown): boolean {
@@ -46,8 +50,8 @@ function diffNode(before: WorkflowNode, after: WorkflowNode): string[] {
     fields.push('position');
   }
   const keys = DATA_KEYS_BY_KIND[after.type] ?? Object.keys(after.data ?? {});
-  const beforeData = (before.data ?? {}) as Record<string, unknown>;
-  const afterData = (after.data ?? {}) as Record<string, unknown>;
+  const beforeData = (before.data ?? {}) as unknown as Record<string, unknown>;
+  const afterData = (after.data ?? {}) as unknown as Record<string, unknown>;
   for (const key of keys) {
     if (!deepEqual(beforeData[key], afterData[key])) {
       fields.push(`data.${key}`);

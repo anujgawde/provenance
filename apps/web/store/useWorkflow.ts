@@ -52,9 +52,13 @@ interface WorkflowStore {
   compareBefore: Workflow | null;
   compareAfter: Workflow | null;
   compareDiff: GraphDiff | null;
+  compareBeforeId: string | null;
+  compareAfterId: string | null;
+  compareViewSide: 'diff' | 'before' | 'after';
   toggleCompareSelection: (lineageId: string) => void;
-  enterCompareMode: (before: Workflow, after: Workflow, diff: GraphDiff) => void;
+  enterCompareMode: (before: Workflow, after: Workflow, diff: GraphDiff, beforeId: string, afterId: string) => void;
   exitCompareMode: () => void;
+  setCompareViewSide: (side: 'diff' | 'before' | 'after') => void;
 }
 
 const MAX_UNDO = 50;
@@ -164,6 +168,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   compareBefore: null,
   compareAfter: null,
   compareDiff: null,
+  compareBeforeId: null,
+  compareAfterId: null,
+  compareViewSide: 'diff',
   toggleCompareSelection: (lineageId) =>
     set((state) => {
       const exists = state.compareSelection.includes(lineageId);
@@ -176,13 +183,17 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       const next = [...state.compareSelection, lineageId].slice(-2);
       return { compareSelection: next };
     }),
-  enterCompareMode: (before, after, diff) =>
-    set({ compareBefore: before, compareAfter: after, compareDiff: diff }),
+  enterCompareMode: (before, after, diff, beforeId, afterId) =>
+    set({ compareBefore: before, compareAfter: after, compareDiff: diff, compareBeforeId: beforeId, compareAfterId: afterId, compareViewSide: 'diff' }),
   exitCompareMode: () =>
     set({
       compareSelection: [],
       compareBefore: null,
       compareAfter: null,
       compareDiff: null,
+      compareBeforeId: null,
+      compareAfterId: null,
+      compareViewSide: 'diff',
     }),
+  setCompareViewSide: (side) => set({ compareViewSide: side }),
 }));
